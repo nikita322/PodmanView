@@ -9,6 +9,8 @@ const App = {
     hostTerminal: null,
     hostTerminalSocket: null,
     hostTerminalFitAddon: null,
+    autoRefreshIntervals: {},
+    autoRefreshDelay: 5000, // 5 seconds
 
     // Initialize application
     async init() {
@@ -37,10 +39,12 @@ const App = {
 
         // Dashboard
         document.getElementById('refresh-dashboard').addEventListener('click', () => this.loadDashboard());
+        document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => this.setAutoRefresh('dashboard', e.target.checked));
         document.getElementById('system-prune-btn').addEventListener('click', () => this.systemPrune());
 
         // Containers page
         document.getElementById('refresh-containers').addEventListener('click', () => this.loadContainers());
+        document.getElementById('auto-refresh-containers').addEventListener('change', (e) => this.setAutoRefresh('containers', e.target.checked));
         document.getElementById('create-container-btn').addEventListener('click', () => this.showModal('modal-create-container'));
         document.getElementById('create-container-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -49,6 +53,7 @@ const App = {
 
         // Images page
         document.getElementById('refresh-images').addEventListener('click', () => this.loadImages());
+        document.getElementById('auto-refresh-images').addEventListener('change', (e) => this.setAutoRefresh('images', e.target.checked));
         document.getElementById('pull-image-btn').addEventListener('click', () => this.showModal('modal-pull'));
         document.getElementById('pull-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -150,6 +155,8 @@ const App = {
         if (this.currentPage === 'terminal') {
             this.cleanupHostTerminal();
         }
+        // Stop auto-refresh on previous page
+        this.stopAutoRefresh(this.currentPage);
 
         this.currentPage = page;
 
@@ -164,16 +171,19 @@ const App = {
         });
         document.getElementById('page-' + page).classList.remove('hidden');
 
-        // Load page data
+        // Load page data and restore auto-refresh
         switch (page) {
             case 'dashboard':
                 this.loadDashboard();
+                this.restoreAutoRefresh('dashboard');
                 break;
             case 'containers':
                 this.loadContainers();
+                this.restoreAutoRefresh('containers');
                 break;
             case 'images':
                 this.loadImages();
+                this.restoreAutoRefresh('images');
                 break;
             case 'terminal':
                 this.initHostTerminal();
@@ -293,6 +303,73 @@ const App = {
 
         } catch (error) {
             this.hostTerminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
+        }
+    },
+
+    // Auto-refresh configuration per page
+    autoRefreshConfig: {
+        dashboard: { toggle: 'auto-refresh-toggle', button: 'refresh-dashboard', loader: 'loadDashboard' },
+        containers: { toggle: 'auto-refresh-containers', button: 'refresh-containers', loader: 'loadContainers' },
+        images: { toggle: 'auto-refresh-images', button: 'refresh-images', loader: 'loadImages' }
+    },
+
+    // Set auto-refresh for a page
+    setAutoRefresh(page, enabled) {
+        const config = this.autoRefreshConfig[page];
+        if (!config) return;
+
+        const refreshBtn = document.getElementById(config.button);
+
+        // Save to localStorage
+        localStorage.setItem('autoRefresh_' + page, enabled ? '1' : '0');
+
+        if (enabled) {
+            refreshBtn.disabled = true;
+            this[config.loader]();
+            this.autoRefreshIntervals[page] = setInterval(() => {
+                if (this.currentPage === page) {
+                    this[config.loader]();
+                }
+            }, this.autoRefreshDelay);
+        } else {
+            refreshBtn.disabled = false;
+            if (this.autoRefreshIntervals[page]) {
+                clearInterval(this.autoRefreshIntervals[page]);
+                delete this.autoRefreshIntervals[page];
+            }
+        }
+    },
+
+    // Stop auto-refresh for a page (pause, don't clear localStorage)
+    stopAutoRefresh(page) {
+        const config = this.autoRefreshConfig[page];
+        if (!config) return;
+
+        // Just clear the interval, don't change localStorage
+        if (this.autoRefreshIntervals[page]) {
+            clearInterval(this.autoRefreshIntervals[page]);
+            delete this.autoRefreshIntervals[page];
+        }
+
+        // Re-enable refresh button
+        const refreshBtn = document.getElementById(config.button);
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+        }
+    },
+
+    // Restore auto-refresh state from localStorage
+    restoreAutoRefresh(page) {
+        const config = this.autoRefreshConfig[page];
+        if (!config) return;
+
+        const saved = localStorage.getItem('autoRefresh_' + page);
+        if (saved === '1') {
+            const toggle = document.getElementById(config.toggle);
+            if (toggle) {
+                toggle.checked = true;
+                this.setAutoRefresh(page, true);
+            }
         }
     },
 
