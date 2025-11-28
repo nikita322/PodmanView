@@ -30,6 +30,7 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 - CPU and memory usage
 - Temperature monitoring
 - System prune (cleanup unused resources)
+- Auto-refresh toggle (state saved in localStorage)
 
 ### Host Terminal
 - Full terminal access to the host system
