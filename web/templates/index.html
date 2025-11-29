@@ -168,15 +168,25 @@
 
                 <div class="info-section admin-only" style="margin-top: 20px;">
                     <h2>Maintenance</h2>
-                    <p style="margin-bottom: 16px; color: var(--text-light);">Remove unused containers, images, and volumes to free up disk space.</p>
-                    <button id="system-prune-btn" class="btn btn-danger">System Prune</button>
-                </div>
-
-                <div class="info-section admin-only" style="margin-top: 20px;">
-                    <h2>Host Controls</h2>
-                    <p style="margin-bottom: 16px; color: var(--text-light);">Reboot or shutdown the host system.</p>
-                    <div class="btn-group">
+                    <div class="maintenance-item">
+                        <div>
+                            <div class="maintenance-title">System Prune</div>
+                            <div class="maintenance-desc">Remove unused containers, images, and volumes to free up disk space.</div>
+                        </div>
+                        <button id="system-prune-btn" class="btn btn-danger">Prune</button>
+                    </div>
+                    <div class="maintenance-item">
+                        <div>
+                            <div class="maintenance-title">Reboot Host</div>
+                            <div class="maintenance-desc">Restart the host system. All containers will be stopped.</div>
+                        </div>
                         <button id="system-reboot-btn" class="btn btn-warning">Reboot</button>
+                    </div>
+                    <div class="maintenance-item">
+                        <div>
+                            <div class="maintenance-title">Shutdown Host</div>
+                            <div class="maintenance-desc">Power off the host system.</div>
+                        </div>
                         <button id="system-shutdown-btn" class="btn btn-danger">Shutdown</button>
                     </div>
                 </div>

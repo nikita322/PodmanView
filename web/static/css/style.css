@@ -126,6 +126,34 @@ body {
     gap: 12px;
 }
 
+/* Maintenance section */
+.maintenance-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.maintenance-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.maintenance-item:first-child {
+    padding-top: 0;
+}
+
+.maintenance-title {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.maintenance-desc {
+    font-size: 13px;
+    color: var(--text-light);
+}
+
 .btn-success {
     background: var(--success);
     color: white;
