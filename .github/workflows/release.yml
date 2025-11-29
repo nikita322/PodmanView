@@ -28,7 +28,9 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Download dependencies
-        run: go mod download
+        run: |
+          go mod tidy
+          go mod download
 
       - name: Build for RISC-V 64-bit
         run: |
