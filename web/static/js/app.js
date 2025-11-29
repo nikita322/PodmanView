@@ -527,7 +527,12 @@ const App = {
     // Load containers list
     async loadContainers() {
         const tbody = document.getElementById('containers-list');
-        tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+        const existingRows = tbody.querySelectorAll('tr[data-id]');
+        const isInitialLoad = existingRows.length === 0;
+
+        if (isInitialLoad) {
+            tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+        }
 
         try {
             const response = await this.authFetch('/api/containers');
@@ -540,29 +545,81 @@ const App = {
                 return;
             }
 
-            tbody.innerHTML = containers.map(c => {
-                const id = c.Id || c.ID;
-                const statsDisplay = c.State === 'running'
-                    ? `${c.CPU.toFixed(1)}% / ${this.formatBytes(c.MemUsage)}`
-                    : '-';
+            const newIds = new Set(containers.map(c => c.Id || c.ID));
+            const existingIds = new Set([...existingRows].map(r => r.dataset.id));
 
-                return `
-                <tr>
-                    <td class="truncate">${this.getContainerName(c)}</td>
-                    <td class="truncate">${c.Image}</td>
-                    <td><span class="status ${c.State}">${c.State}</span></td>
-                    <td class="stats-cell">${statsDisplay}</td>
-                    <td class="actions">
-                        ${this.getContainerActions(c)}
-                    </td>
-                </tr>
-            `}).join('');
+            // Update existing rows or add new ones
+            containers.forEach(c => {
+                const id = c.Id || c.ID;
+                const existingRow = tbody.querySelector(`tr[data-id="${id}"]`);
+
+                if (existingRow) {
+                    // Update only dynamic data (state, stats)
+                    const statusCell = existingRow.querySelector('.status');
+                    const statsCell = existingRow.querySelector('.stats-cell');
+                    const actionsCell = existingRow.querySelector('.actions');
+
+                    const newState = c.State;
+                    const oldState = statusCell.textContent;
+
+                    if (oldState !== newState) {
+                        statusCell.className = `status ${newState}`;
+                        statusCell.textContent = newState;
+                        // Update actions menu when state changes
+                        actionsCell.innerHTML = this.getContainerActions(c);
+                    }
+
+                    const statsDisplay = c.State === 'running'
+                        ? `${c.CPU.toFixed(1)}% / ${this.formatBytes(c.MemUsage)}`
+                        : '-';
+                    statsCell.textContent = statsDisplay;
+                } else {
+                    // Add new row
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = id;
+                    tr.innerHTML = this.getContainerRowContent(c);
+                    tbody.appendChild(tr);
+                }
+            });
+
+            // Remove rows for deleted containers
+            existingRows.forEach(row => {
+                if (!newIds.has(row.dataset.id)) {
+                    row.remove();
+                }
+            });
+
+            // On initial load, rebuild all rows with data-id
+            if (isInitialLoad) {
+                tbody.innerHTML = containers.map(c => {
+                    const id = c.Id || c.ID;
+                    return `<tr data-id="${id}">${this.getContainerRowContent(c)}</tr>`;
+                }).join('');
+            }
         } catch (error) {
             if (error.message !== 'Session expired') {
-                tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
+                if (isInitialLoad) {
+                    tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
+                }
                 this.showToast('Failed to load containers', 'error');
             }
         }
+    },
+
+    // Get container row HTML content (without tr wrapper)
+    getContainerRowContent(c) {
+        const statsDisplay = c.State === 'running'
+            ? `${c.CPU.toFixed(1)}% / ${this.formatBytes(c.MemUsage)}`
+            : '-';
+
+        return `
+            <td class="truncate">${this.getContainerName(c)}</td>
+            <td class="truncate">${c.Image}</td>
+            <td><span class="status ${c.State}">${c.State}</span></td>
+            <td class="stats-cell">${statsDisplay}</td>
+            <td class="actions">
+                ${this.getContainerActions(c)}
+            </td>`;
     },
 
     // Get container name from Names array
@@ -708,7 +765,12 @@ const App = {
     // Load images list
     async loadImages() {
         const tbody = document.getElementById('images-list');
-        tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+        const existingRows = tbody.querySelectorAll('tr[data-id]');
+        const isInitialLoad = existingRows.length === 0;
+
+        if (isInitialLoad) {
+            tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+        }
 
         try {
             const response = await this.authFetch('/api/images');
@@ -721,42 +783,84 @@ const App = {
                 return;
             }
 
-            tbody.innerHTML = images.map(img => {
-                const [repo, tag] = this.parseImageTag(img);
+            const newIds = new Set(images.map(img => img.Id || img.ID));
+
+            // Update existing rows or add new ones
+            images.forEach(img => {
                 const imgId = img.Id || img.ID || '';
-                const shortId = imgId.substring(0, 12);
-                const displayRepo = repo === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : repo;
-                const displayTag = tag === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : tag;
-                const usageStatus = img.InUse
-                    ? '<span class="badge in-use">In Use</span>'
-                    : '<span class="badge unused">Unused</span>';
-                return `
-                    <tr>
-                        <td class="truncate">${displayRepo}</td>
-                        <td>${displayTag}</td>
-                        <td class="id-short">${shortId}</td>
-                        <td>${this.formatBytes(img.Size)}</td>
-                        <td>${this.formatDate(img.Created)}</td>
-                        <td>${usageStatus}</td>
-                        <td class="actions">
-                            ${this.user && this.user.role === 'admin'
-                                ? `<div class="dropdown">
-                                    <button class="btn btn-small" onclick="App.toggleDropdown(this)">...</button>
-                                    <div class="dropdown-menu">
-                                        <button class="dropdown-item btn-danger" onclick="App.removeImage('${imgId}')">Remove</button>
-                                    </div>
-                                </div>`
-                                : ''}
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+                const existingRow = tbody.querySelector(`tr[data-id="${imgId}"]`);
+
+                if (existingRow) {
+                    // Update only InUse status (the only thing that can change for images)
+                    const statusCell = existingRow.querySelector('.badge');
+                    if (statusCell) {
+                        const isInUse = statusCell.classList.contains('in-use');
+                        if (isInUse !== img.InUse) {
+                            statusCell.className = img.InUse ? 'badge in-use' : 'badge unused';
+                            statusCell.textContent = img.InUse ? 'In Use' : 'Unused';
+                        }
+                    }
+                } else {
+                    // Add new row
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = imgId;
+                    tr.innerHTML = this.getImageRowContent(img);
+                    tbody.appendChild(tr);
+                }
+            });
+
+            // Remove rows for deleted images
+            existingRows.forEach(row => {
+                if (!newIds.has(row.dataset.id)) {
+                    row.remove();
+                }
+            });
+
+            // On initial load, rebuild all rows with data-id
+            if (isInitialLoad) {
+                tbody.innerHTML = images.map(img => {
+                    const imgId = img.Id || img.ID || '';
+                    return `<tr data-id="${imgId}">${this.getImageRowContent(img)}</tr>`;
+                }).join('');
+            }
         } catch (error) {
             if (error.message !== 'Session expired') {
-                tbody.innerHTML = '<tr><td colspan="7">Error loading images</td></tr>';
+                if (isInitialLoad) {
+                    tbody.innerHTML = '<tr><td colspan="7">Error loading images</td></tr>';
+                }
                 this.showToast('Failed to load images', 'error');
             }
         }
+    },
+
+    // Get image row HTML content (without tr wrapper)
+    getImageRowContent(img) {
+        const [repo, tag] = this.parseImageTag(img);
+        const imgId = img.Id || img.ID || '';
+        const shortId = imgId.substring(0, 12);
+        const displayRepo = repo === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : repo;
+        const displayTag = tag === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : tag;
+        const usageStatus = img.InUse
+            ? '<span class="badge in-use">In Use</span>'
+            : '<span class="badge unused">Unused</span>';
+
+        return `
+            <td class="truncate">${displayRepo}</td>
+            <td>${displayTag}</td>
+            <td class="id-short">${shortId}</td>
+            <td>${this.formatBytes(img.Size)}</td>
+            <td>${this.formatDate(img.Created)}</td>
+            <td>${usageStatus}</td>
+            <td class="actions">
+                ${this.user && this.user.role === 'admin'
+                    ? `<div class="dropdown">
+                        <button class="btn btn-small" onclick="App.toggleDropdown(this)">...</button>
+                        <div class="dropdown-menu">
+                            <button class="dropdown-item btn-danger" onclick="App.removeImage('${imgId}')">Remove</button>
+                        </div>
+                    </div>`
+                    : ''}
+            </td>`;
     },
 
     // Parse image repository and tag
