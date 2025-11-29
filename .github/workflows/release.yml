@@ -38,7 +38,7 @@ jobs:
               apt-get update && \
               apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git && \
               go mod tidy && \
-              go build -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+              go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
             '
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
 
