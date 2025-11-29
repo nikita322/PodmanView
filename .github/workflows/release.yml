@@ -23,6 +23,11 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Install cross-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu libpam0g-dev
+
       - name: Get version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -34,7 +39,7 @@ jobs:
 
       - name: Build for RISC-V 64-bit
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
+          CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 CC=riscv64-linux-gnu-gcc go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
 
       - name: Create Release
