@@ -702,6 +702,7 @@ const App = {
 
     // Container actions
     async startContainer(id) {
+        this.showToast('Starting container...', 'info');
         try {
             const response = await this.authFetch(`/api/containers/${id}/start`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to start container');
@@ -713,6 +714,7 @@ const App = {
     },
 
     async stopContainer(id) {
+        this.showToast('Stopping container...', 'info');
         try {
             const response = await this.authFetch(`/api/containers/${id}/stop`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to stop container');
@@ -724,6 +726,7 @@ const App = {
     },
 
     async restartContainer(id) {
+        this.showToast('Restarting container...', 'info');
         try {
             const response = await this.authFetch(`/api/containers/${id}/restart`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to restart container');
@@ -736,6 +739,7 @@ const App = {
 
     removeContainer(id) {
         this.confirmAction('Remove Container', 'Are you sure you want to remove this container?', async () => {
+            this.showToast('Removing container...', 'info');
             try {
                 const response = await this.authFetch(`/api/containers/${id}?force=true`, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to remove container');
@@ -881,6 +885,7 @@ const App = {
         const btn = document.querySelector('#pull-form button[type="submit"]');
         btn.disabled = true;
         btn.textContent = 'Pulling...';
+        this.showToast('Pulling image...', 'info');
 
         try {
             const response = await this.authFetch('/api/images/pull', {
@@ -923,6 +928,7 @@ const App = {
         const btn = document.getElementById('system-prune-btn');
         btn.disabled = true;
         btn.textContent = 'Cleaning...';
+        this.showToast('Cleaning system...', 'info');
 
         try {
             const response = await this.authFetch('/api/system/prune', { method: 'POST' });
@@ -989,6 +995,7 @@ const App = {
         const btn = form.querySelector('button[type="submit"]');
         btn.disabled = true;
         btn.textContent = 'Creating...';
+        this.showToast('Creating container...', 'info');
 
         const data = {
             image: document.getElementById('container-image').value,
