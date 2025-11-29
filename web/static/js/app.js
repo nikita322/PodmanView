@@ -532,7 +532,7 @@ const App = {
         try {
             // Load containers and stats in parallel
             const [containersRes, statsRes] = await Promise.all([
-                this.authFetch('/api/containers?all=true'),
+                this.authFetch('/api/containers'),
                 this.authFetch('/api/containers/stats')
             ]);
 

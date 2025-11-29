@@ -179,14 +179,10 @@ type ContainerInspect struct {
 	} `json:"Mounts"`
 }
 
-// ListContainers returns list of all containers
-func (c *Client) ListContainers(ctx context.Context, all bool) ([]Container, error) {
-	path := "/v4.0.0/libpod/containers/json"
-	if all {
-		path += "?all=true"
-	}
+// ListContainers returns list of all containers (running and stopped)
+func (c *Client) ListContainers(ctx context.Context) ([]Container, error) {
 	var containers []Container
-	err := c.get(ctx, path, &containers)
+	err := c.get(ctx, "/v4.0.0/libpod/containers/json?all=true", &containers)
 	return containers, err
 }
 

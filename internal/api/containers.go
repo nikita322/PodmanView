@@ -24,9 +24,7 @@ func NewContainerHandler(client *podman.Client) *ContainerHandler {
 
 // List handles GET /api/containers
 func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
-	all := r.URL.Query().Get("all") == "true"
-
-	containers, err := h.client.ListContainers(r.Context(), all)
+	containers, err := h.client.ListContainers(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
