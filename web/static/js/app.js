@@ -1042,3 +1042,16 @@ function closeModal(id) {
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+// Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/sw.js')
+            .then((registration) => {
+                console.log('SW registered:', registration.scope);
+            })
+            .catch((error) => {
+                console.log('SW registration failed:', error);
+            });
+    });
+}
