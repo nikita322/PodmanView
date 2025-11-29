@@ -68,6 +68,17 @@ const App = {
                 document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
             }
         });
+
+        // Pause/resume auto-refresh when tab visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Tab is hidden - pause all auto-refresh
+                this.pauseAllAutoRefresh();
+            } else {
+                // Tab is visible - resume auto-refresh for current page
+                this.resumeAutoRefresh();
+            }
+        });
     },
 
     // Check if user is authenticated
@@ -325,53 +336,91 @@ const App = {
         // Save to localStorage
         localStorage.setItem('autoRefresh_' + page, enabled ? '1' : '0');
 
-        if (enabled) {
-            refreshBtn.disabled = true;
-            this[config.loader]();
-            this.autoRefreshIntervals[page] = setInterval(() => {
-                if (this.currentPage === page) {
-                    this[config.loader]();
-                }
-            }, this.autoRefreshDelay);
-        } else {
-            refreshBtn.disabled = false;
-            if (this.autoRefreshIntervals[page]) {
-                clearInterval(this.autoRefreshIntervals[page]);
-                delete this.autoRefreshIntervals[page];
-            }
-        }
-    },
-
-    // Stop auto-refresh for a page (pause, don't clear localStorage)
-    stopAutoRefresh(page) {
-        const config = this.autoRefreshConfig[page];
-        if (!config) return;
-
-        // Just clear the interval, don't change localStorage
+        // Clear existing interval first
         if (this.autoRefreshIntervals[page]) {
             clearInterval(this.autoRefreshIntervals[page]);
             delete this.autoRefreshIntervals[page];
         }
 
-        // Re-enable refresh button
-        const refreshBtn = document.getElementById(config.button);
-        if (refreshBtn) {
+        if (enabled) {
+            refreshBtn.disabled = true;
+            this[config.loader]();
+            this.autoRefreshIntervals[page] = setInterval(() => {
+                if (this.currentPage === page && !document.hidden) {
+                    this[config.loader]();
+                }
+            }, this.autoRefreshDelay);
+        } else {
             refreshBtn.disabled = false;
         }
     },
 
-    // Restore auto-refresh state from localStorage
+    // Stop auto-refresh for a page (when navigating away)
+    stopAutoRefresh(page) {
+        // Just clear the interval, don't change localStorage or button state
+        if (this.autoRefreshIntervals[page]) {
+            clearInterval(this.autoRefreshIntervals[page]);
+            delete this.autoRefreshIntervals[page];
+        }
+    },
+
+    // Restore auto-refresh state from localStorage (when navigating to page)
     restoreAutoRefresh(page) {
         const config = this.autoRefreshConfig[page];
         if (!config) return;
 
         const saved = localStorage.getItem('autoRefresh_' + page);
+        const toggle = document.getElementById(config.toggle);
+        const refreshBtn = document.getElementById(config.button);
+
         if (saved === '1') {
-            const toggle = document.getElementById(config.toggle);
-            if (toggle) {
-                toggle.checked = true;
-                this.setAutoRefresh(page, true);
+            if (toggle) toggle.checked = true;
+            if (refreshBtn) refreshBtn.disabled = true;
+            this.startAutoRefreshInterval(page);
+        } else {
+            if (toggle) toggle.checked = false;
+            if (refreshBtn) refreshBtn.disabled = false;
+        }
+    },
+
+    // Start auto-refresh interval for a page
+    startAutoRefreshInterval(page) {
+        const config = this.autoRefreshConfig[page];
+        if (!config) return;
+
+        // Clear existing interval first
+        if (this.autoRefreshIntervals[page]) {
+            clearInterval(this.autoRefreshIntervals[page]);
+        }
+
+        this.autoRefreshIntervals[page] = setInterval(() => {
+            if (this.currentPage === page && !document.hidden) {
+                this[config.loader]();
             }
+        }, this.autoRefreshDelay);
+    },
+
+    // Pause all auto-refresh intervals (when tab is hidden)
+    pauseAllAutoRefresh() {
+        Object.keys(this.autoRefreshIntervals).forEach(page => {
+            if (this.autoRefreshIntervals[page]) {
+                clearInterval(this.autoRefreshIntervals[page]);
+                delete this.autoRefreshIntervals[page];
+            }
+        });
+    },
+
+    // Resume auto-refresh for current page (when tab becomes visible)
+    resumeAutoRefresh() {
+        const page = this.currentPage;
+        const config = this.autoRefreshConfig[page];
+        if (!config) return;
+
+        const saved = localStorage.getItem('autoRefresh_' + page);
+        if (saved === '1') {
+            // Reload data immediately and restart interval
+            this[config.loader]();
+            this.startAutoRefreshInterval(page);
         }
     },
 
