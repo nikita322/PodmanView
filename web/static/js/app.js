@@ -11,6 +11,53 @@ const App = {
     hostTerminalFitAddon: null,
     autoRefreshIntervals: {},
     autoRefreshDelay: 5000, // 5 seconds
+    xtermLoaded: false,
+    xtermLoading: false,
+
+    // Lazy load xterm library
+    async loadXterm() {
+        if (this.xtermLoaded) return true;
+        if (this.xtermLoading) {
+            // Wait for loading to complete
+            while (this.xtermLoading) {
+                await new Promise(r => setTimeout(r, 50));
+            }
+            return this.xtermLoaded;
+        }
+
+        this.xtermLoading = true;
+        try {
+            // Load CSS
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/static/css/xterm.min.css';
+            document.head.appendChild(link);
+
+            // Load xterm.js
+            await this.loadScript('/static/js/xterm.min.js');
+            // Load fit addon
+            await this.loadScript('/static/js/xterm-addon-fit.min.js');
+
+            this.xtermLoaded = true;
+            return true;
+        } catch (err) {
+            console.error('Failed to load xterm:', err);
+            return false;
+        } finally {
+            this.xtermLoading = false;
+        }
+    },
+
+    // Helper to load script dynamically
+    loadScript(src) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.body.appendChild(script);
+        });
+    },
 
     // Authenticated fetch - handles 401 by redirecting to login
     async authFetch(url, options = {}) {
@@ -227,7 +274,7 @@ const App = {
                 this.restoreAutoRefresh('images');
                 break;
             case 'terminal':
-                this.initHostTerminal();
+                this.loadXterm().then(() => this.initHostTerminal());
                 break;
         }
     },
@@ -248,13 +295,14 @@ const App = {
     // Initialize host terminal
     initHostTerminal() {
         const container = document.getElementById('host-terminal-container');
-        container.innerHTML = '';
 
         // Check if xterm is available
         if (typeof Terminal === 'undefined') {
-            container.innerHTML = '<p style="color: #d4d4d4; padding: 20px;">Terminal library not loaded. Please check your internet connection.</p>';
+            container.innerHTML = '<p style="color: var(--danger); padding: 20px;">Failed to load terminal library.</p>';
             return;
         }
+
+        container.innerHTML = '';
 
         // Create terminal
         this.hostTerminal = new Terminal({
@@ -289,11 +337,11 @@ const App = {
             this.hostTerminalSocket = new WebSocket(wsUrl);
 
             this.hostTerminalSocket.onopen = () => {
-                this.hostTerminal.writeln('\x1b[32mConnected!\x1b[0m\r\n');
+                if (this.hostTerminal) this.hostTerminal.writeln('\x1b[32mConnected!\x1b[0m\r\n');
                 // Send initial resize
                 if (this.hostTerminalFitAddon) {
                     const dims = this.hostTerminalFitAddon.proposeDimensions();
-                    if (dims) {
+                    if (dims && this.hostTerminalSocket) {
                         this.hostTerminalSocket.send(JSON.stringify({
                             type: 'resize',
                             cols: dims.cols,
@@ -304,7 +352,7 @@ const App = {
             };
 
             this.hostTerminalSocket.onmessage = (event) => {
-                this.hostTerminal.write(event.data);
+                if (this.hostTerminal) this.hostTerminal.write(event.data);
             };
 
             this.hostTerminalSocket.onclose = () => {
@@ -1033,16 +1081,19 @@ const App = {
     },
 
     // Open terminal
-    openTerminal(containerId) {
+    async openTerminal(containerId) {
         this.showModal('modal-terminal');
         const container = document.getElementById('terminal-container');
-        container.innerHTML = '';
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">Loading terminal...</p>';
 
-        // Check if xterm is available
-        if (typeof Terminal === 'undefined') {
-            container.innerHTML = '<p style="color: #d4d4d4; padding: 20px;">Terminal library not loaded. Please check your internet connection.</p>';
+        // Load xterm if not loaded
+        const loaded = await this.loadXterm();
+        if (!loaded || typeof Terminal === 'undefined') {
+            container.innerHTML = '<p style="color: var(--danger); padding: 20px;">Failed to load terminal library.</p>';
             return;
         }
+
+        container.innerHTML = '';
 
         // Create terminal
         this.terminal = new Terminal({
@@ -1077,19 +1128,19 @@ const App = {
             this.terminalSocket = new WebSocket(wsUrl);
 
             this.terminalSocket.onopen = () => {
-                this.terminal.writeln('Connected!\r\n');
+                if (this.terminal) this.terminal.writeln('Connected!\r\n');
             };
 
             this.terminalSocket.onmessage = (event) => {
-                this.terminal.write(event.data);
+                if (this.terminal) this.terminal.write(event.data);
             };
 
             this.terminalSocket.onclose = () => {
-                this.terminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
+                if (this.terminal) this.terminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
             };
 
             this.terminalSocket.onerror = (error) => {
-                this.terminal.writeln('\r\n\x1b[31mConnection error\x1b[0m');
+                if (this.terminal) this.terminal.writeln('\r\n\x1b[31mConnection error\x1b[0m');
                 console.error('WebSocket error:', error);
             };
 
