@@ -52,7 +52,7 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 - 24-hour session lifetime
 
 ## Demo
-![RVPodView Demo](https://github.com/user-attachments/assets/88dea1b8-a760-4873-852c-b1bbd4b59e2f)
+![RVPodView Demo](https://github.com/user-attachments/assets/ca9603ea-1ac6-4410-979a-1f69a440ceff)
 
 ## Requirements
 
