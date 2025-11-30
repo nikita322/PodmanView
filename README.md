@@ -6,93 +6,108 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 ![Podman](https://img.shields.io/badge/Podman-4.0+-892CA0?logo=podman&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-## Features
-
-### Container Management
-- List all containers (running/stopped/all)
-- Create containers from images with port mappings, volumes, and environment variables
-- Start/Stop/Restart containers
-- Remove containers (with force option)
-- View container logs
-- Terminal access (exec) via WebSocket
-- Inspect container details
-
-### Image Management
-- List all images
-- Pull images from registry
-- Remove images
-- Inspect image details
-
-### System
-- Dashboard with system statistics
-- Host information (OS, kernel, architecture)
-- Disk usage overview
-- CPU and memory usage
-- Temperature monitoring
-- System prune (cleanup unused resources)
-- Host reboot/shutdown controls
-- Auto-refresh toggle (state saved in localStorage)
-
-### PWA Support
-- Installable as app on mobile and desktop
-- Standalone mode (no browser UI)
-- Offline caching for static assets
-
-### Host Terminal
-- Full terminal access to the host system
-- WebSocket-based with xterm.js
-- Admin-only access
-
-### Authentication
-- PAM authentication (Linux system users)
-- JWT tokens stored in HttpOnly cookies
-- Role-based access control:
-  - **Admin** (wheel/sudo group): Full access
-  - **User**: Read-only access
-- 24-hour session lifetime
-
 ## Demo
+
 ![RVPodView Demo](https://github.com/user-attachments/assets/ca9603ea-1ac6-4410-979a-1f69a440ceff)
 
-## Requirements
+## Quick Start
 
-- Podman 4.0+
+### Requirements
+
 - Linux with PAM support
+- Podman 4.0+
+- Root access (for PAM authentication and port 80)
 
-## Installation
+### Installation
 
-### Download Pre-built Binary (Recommended)
-
-Download the latest release from [Releases](https://github.com/nir0k/rvpodview/releases):
-
-- **RISC-V 64-bit** (Orange Pi RV2, etc.): `rvpodview-vX.X.X-linux-riscv64.tar.gz`
+#### Option 1: Download Pre-built Binary (Recommended)
 
 ```bash
-# Download and extract
-wget https://github.com/nir0k/rvpodview/releases/latest/download/rvpodview-vX.X.X-linux-riscv64.tar.gz
-tar -xzvf rvpodview-vX.X.X-linux-riscv64.tar.gz
+# Download latest release for RISC-V 64-bit
+wget https://github.com/nir0k/rvpodview/releases/latest/download/rvpodview-linux-riscv64.tar.gz
 
-# Run (requires root for PAM and port 80)
+# Extract
+tar -xzvf rvpodview-linux-riscv64.tar.gz
+
+# Run
 sudo ./rvpodview
 ```
 
-### Build from Source
+#### Option 2: Build from Source
 
 Requires Go 1.21+
 
 ```bash
-# Clone the repository
+# Clone
 git clone https://github.com/nir0k/rvpodview.git
 cd rvpodview
 
-# Build for current platform
+# Build on RISC-V device
 make build
 
-# Or cross-compile for RISC-V
+# Or cross-compile for RISC-V from another machine
 make build-riscv64
 
 # Run
 sudo ./rvpodview
+```
+
+### Run as Systemd Service
+
+#### Option A: Pre-built binary
+
+```bash
+# Copy binary to /usr/local/bin
+sudo cp rvpodview /usr/local/bin/
+
+# Create service file
+sudo tee /etc/systemd/system/rvpodview.service << 'EOF'
+[Unit]
+Description=RVPodView - Podman Web Management
+After=network.target podman.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/rvpodview -addr :80
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable rvpodview
+sudo systemctl start rvpodview
+```
+
+#### Option B: Build from source on start
+
+```bash
+sudo tee /etc/systemd/system/rvpodview.service << 'EOF'
+[Unit]
+Description=RVPodView - Podman Web Management
+After=network.target podman.socket
+
+[Service]
+Type=simple
+WorkingDirectory=/root/RVPodView
+Environment=GOPATH=/root/go
+Environment=GOMODCACHE=/root/go/pkg/mod
+Environment=HOME=/root
+ExecStartPre=/usr/local/go/bin/go build -o rvpodview ./cmd/rvpodview
+ExecStart=/root/RVPodView/rvpodview -addr :80
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable rvpodview
+sudo systemctl start rvpodview
 ```
 
 ### Command Line Options
@@ -110,10 +125,58 @@ sudo ./rvpodview
 
 ## Usage
 
-1. Open your browser and navigate to the server IP address
-2. Login with your Linux system credentials
-3. Users in `wheel` or `sudo` group have full admin access
-4. Other users have read-only access
+1. Open browser: `http://<server-ip>`
+2. Login with Linux system credentials
+3. Users in `wheel` or `sudo` group get admin access
+4. Other users get read-only access
+
+## Features
+
+### Container Management
+- List all containers (running/stopped/all)
+- Create containers with port mappings, volumes, environment variables
+- Start/Stop/Restart/Remove containers
+- View container logs (newest first, ANSI codes stripped)
+- Terminal access via WebSocket
+- Real-time CPU and memory stats
+
+### Image Management
+- List images with usage status (In Use / Unused)
+- Pull images from registry
+- Remove images (force option available)
+- Inspect image details
+
+### System Dashboard
+- Host information (OS, kernel, architecture)
+- Real-time CPU usage (calculated from /proc/stat)
+- Memory usage
+- Disk usage
+- Temperature monitoring (hwmon sensors + NVMe)
+- System uptime
+- Container/Image/Volume/Network counts
+
+### System Controls (Admin only)
+- System prune (cleanup unused resources)
+- Host reboot
+- Host shutdown
+
+### Host Terminal
+- Full terminal access to host system
+- WebSocket-based with xterm.js
+- Admin-only access
+
+### PWA Support
+- Installable as app on mobile and desktop
+- Standalone mode (no browser UI)
+- Offline caching for static assets
+
+### Authentication
+- PAM authentication (Linux system users)
+- JWT tokens in HttpOnly cookies
+- Role-based access:
+  - **Admin** (wheel/sudo group): Full access
+  - **User**: Read-only access
+- 24-hour session lifetime
 
 ## API Endpoints
 
@@ -123,7 +186,7 @@ sudo ./rvpodview
 - `GET /api/auth/me` - Current user info
 
 ### Containers
-- `GET /api/containers` - List containers
+- `GET /api/containers` - List containers (with stats)
 - `POST /api/containers` - Create container
 - `GET /api/containers/{id}` - Inspect container
 - `GET /api/containers/{id}/logs` - Get logs
@@ -134,7 +197,7 @@ sudo ./rvpodview
 - `GET /api/containers/{id}/terminal` - Terminal (WebSocket)
 
 ### Images
-- `GET /api/images` - List images
+- `GET /api/images` - List images (with usage info)
 - `GET /api/images/{id}` - Inspect image
 - `POST /api/images/pull` - Pull image
 - `DELETE /api/images/{id}` - Remove image
@@ -144,6 +207,8 @@ sudo ./rvpodview
 - `GET /api/system/info` - System info
 - `GET /api/system/df` - Disk usage
 - `POST /api/system/prune` - System prune
+- `POST /api/system/reboot` - Reboot host
+- `POST /api/system/shutdown` - Shutdown host
 
 ### Terminal
 - `GET /api/terminal` - Host terminal (WebSocket, admin only)
@@ -152,6 +217,7 @@ sudo ./rvpodview
 
 - **Backend**: Go with Chi router
 - **Frontend**: Vanilla JavaScript, xterm.js
+- **UI**: Dark theme, responsive design
 - **Authentication**: PAM + JWT
 - **Container Runtime**: Podman REST API via Unix socket
 
@@ -166,16 +232,17 @@ rvpodview/
 │   └── podman/         # Podman client
 ├── web/
 │   ├── static/
-│   │   ├── css/        # Styles
+│   │   ├── css/        # Styles (dark theme)
 │   │   ├── js/         # Frontend JavaScript
 │   │   └── img/        # Icons and images
 │   └── templates/      # HTML templates
+├── Makefile            # Build commands
 └── README.md
 ```
 
 ## Security Notes
 
-- Always use HTTPS in production (via reverse proxy)
+- Always use HTTPS in production (via reverse proxy like nginx)
 - The `-no-auth` flag should never be used in production
 - PAM authentication uses system credentials - use strong passwords
 - Admin access is restricted to users in wheel/sudo groups
