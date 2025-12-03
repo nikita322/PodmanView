@@ -14,11 +14,12 @@ import (
 
 // HostStats represents CPU, temperature, uptime and disk info
 type HostStats struct {
-	CPUUsage     float64       `json:"cpuUsage"`
-	Temperatures []Temperature `json:"temperatures"`
-	Uptime       int64         `json:"uptime"`    // seconds
-	DiskTotal    uint64        `json:"diskTotal"` // bytes
-	DiskFree     uint64        `json:"diskFree"`  // bytes
+	CPUUsage        float64       `json:"cpuUsage"`
+	Temperatures    []Temperature `json:"temperatures"`              // CPU/SoC temperatures
+	StorageTemps    []Temperature `json:"storageTemps,omitempty"`    // NVMe/Storage temperatures
+	Uptime          int64         `json:"uptime"`                    // seconds
+	DiskTotal       uint64        `json:"diskTotal"`                 // bytes
+	DiskFree        uint64        `json:"diskFree"`                  // bytes
 }
 
 // Temperature represents a temperature sensor reading
@@ -31,13 +32,17 @@ type Temperature struct {
 func GetHostStats() *HostStats {
 	stats := &HostStats{
 		Temperatures: []Temperature{},
+		StorageTemps: []Temperature{},
 	}
 
 	// Get CPU usage
 	stats.CPUUsage = getCPUUsage()
 
-	// Get temperatures from hwmon
-	stats.Temperatures = getTemperatures()
+	// Get CPU/SoC temperatures from hwmon
+	stats.Temperatures = getCPUTemperatures()
+
+	// Get NVMe/Storage temperatures
+	stats.StorageTemps = getNVMeTemperatures()
 
 	// Get uptime
 	stats.Uptime = getUptime()
@@ -170,8 +175,8 @@ var friendlyTempNames = map[string]string{
 	"cluster1_thermal": "CPU Cluster 1",
 }
 
-// getTemperatures reads temperatures from /sys/class/hwmon
-func getTemperatures() []Temperature {
+// getCPUTemperatures reads CPU/SoC temperatures from /sys/class/hwmon
+func getCPUTemperatures() []Temperature {
 	temps := []Temperature{}
 
 	// Scan hwmon devices
@@ -234,9 +239,6 @@ func getTemperatures() []Temperature {
 		}
 	}
 
-	// Add NVMe temperatures
-	temps = append(temps, getNVMeTemperatures()...)
-
 	return temps
 }
 
@@ -272,15 +274,31 @@ func getNVMeTemperatures() []Temperature {
 			continue
 		}
 
-		// Parse: temperature                             : 53 °C (326 K)
-		re := regexp.MustCompile(`temperature\s*:\s*(\d+)\s*°?C`)
-		matches := re.FindStringSubmatch(string(output))
-		if len(matches) >= 2 {
+		outputStr := string(output)
+
+		// Parse main temperature: "temperature                             : 53 °C (326 K)"
+		reMain := regexp.MustCompile(`(?m)^temperature\s*:\s*(\d+)\s*°?C`)
+		if matches := reMain.FindStringSubmatch(outputStr); len(matches) >= 2 {
 			if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
 				temps = append(temps, Temperature{
-					Label: "NVMe " + deviceName,
+					Label: deviceName,
 					Temp:  tempC,
 				})
+			}
+		}
+
+		// Parse temperature sensors: "Temperature Sensor 1           : 76 °C (349 K)"
+		reSensors := regexp.MustCompile(`Temperature Sensor (\d+)\s*:\s*(\d+)\s*°C`)
+		sensorMatches := reSensors.FindAllStringSubmatch(outputStr, -1)
+		for _, match := range sensorMatches {
+			if len(match) >= 3 {
+				sensorNum := match[1]
+				if tempC, err := strconv.ParseFloat(match[2], 64); err == nil {
+					temps = append(temps, Temperature{
+						Label: deviceName + " Sensor " + sensorNum,
+						Temp:  tempC,
+					})
+				}
 			}
 		}
 	}

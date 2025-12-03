@@ -544,27 +544,24 @@ const App = {
                     document.getElementById('info-disk').textContent = `${usedStr} / ${totalStr}`;
                 }
 
-                // Update temperatures
-                const tempsGrid = document.getElementById('temps-grid');
+                // Update CPU temperatures
+                const tempsCpu = document.getElementById('temps-cpu');
                 if (data.hostStats.temperatures && data.hostStats.temperatures.length > 0) {
-                    tempsGrid.innerHTML = data.hostStats.temperatures.map(t => {
-                        // Temperature thresholds for Orange Pi RV2 (SpacemiT K1)
-                        // < 50°C = cool (excellent), 50-65°C = normal, 65-75°C = warm, 75-85°C = hot, > 85°C = critical
-                        let tempClass = 'normal';
-                        if (t.temp < 50) tempClass = 'cool';
-                        else if (t.temp < 65) tempClass = 'normal';
-                        else if (t.temp < 75) tempClass = 'warm';
-                        else if (t.temp < 85) tempClass = 'hot';
-                        else tempClass = 'critical';
-                        return `
-                            <div class="temp-item">
-                                <span class="temp-label">${t.label}</span>
-                                <span class="temp-value ${tempClass}">${t.temp.toFixed(1)}°C</span>
-                            </div>
-                        `;
-                    }).join('');
+                    tempsCpu.innerHTML = data.hostStats.temperatures.map(t => this.renderTempItem(t)).join('');
                 } else {
-                    tempsGrid.innerHTML = '<span class="info-value">No sensors found</span>';
+                    tempsCpu.innerHTML = '<span class="info-value">No sensors found</span>';
+                }
+
+                // Update Storage temperatures
+                const tempsStorage = document.getElementById('temps-storage');
+                const tempsStorageTitle = document.getElementById('temps-storage-title');
+                if (data.hostStats.storageTemps && data.hostStats.storageTemps.length > 0) {
+                    tempsStorage.innerHTML = data.hostStats.storageTemps.map(t => this.renderTempItem(t)).join('');
+                    tempsStorage.style.display = '';
+                    tempsStorageTitle.style.display = '';
+                } else {
+                    tempsStorage.style.display = 'none';
+                    tempsStorageTitle.style.display = 'none';
                 }
             }
         } catch (error) {
@@ -1243,6 +1240,23 @@ const App = {
         if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
 
         return parts.join(' ');
+    },
+
+    renderTempItem(t) {
+        // Temperature thresholds for Orange Pi RV2 (SpacemiT K1)
+        // < 50°C = cool, 50-65°C = normal, 65-75°C = warm, 75-85°C = hot, > 85°C = critical
+        let tempClass = 'normal';
+        if (t.temp < 50) tempClass = 'cool';
+        else if (t.temp < 65) tempClass = 'normal';
+        else if (t.temp < 75) tempClass = 'warm';
+        else if (t.temp < 85) tempClass = 'hot';
+        else tempClass = 'critical';
+        return `
+            <div class="temp-item">
+                <span class="temp-label">${t.label}</span>
+                <span class="temp-value ${tempClass}">${t.temp.toFixed(1)}°C</span>
+            </div>
+        `;
     }
 };
 
