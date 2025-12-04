@@ -12,9 +12,11 @@ import (
 	"time"
 )
 
-// HostStats represents CPU, temperature, uptime and disk info
+// HostStats represents CPU, memory, temperature, uptime and disk info
 type HostStats struct {
 	CPUUsage        float64       `json:"cpuUsage"`
+	MemTotal        uint64        `json:"memTotal"`                  // bytes
+	MemFree         uint64        `json:"memFree"`                   // bytes (MemAvailable from /proc/meminfo)
 	Temperatures    []Temperature `json:"temperatures"`              // CPU/SoC temperatures
 	StorageTemps    []Temperature `json:"storageTemps,omitempty"`    // NVMe/Storage temperatures
 	Uptime          int64         `json:"uptime"`                    // seconds
@@ -28,7 +30,7 @@ type Temperature struct {
 	Temp  float64 `json:"temp"`
 }
 
-// GetHostStats reads CPU usage, temperatures and uptime from /sys and /proc
+// GetHostStats reads CPU usage, memory, temperatures and uptime from /sys and /proc
 func GetHostStats() *HostStats {
 	stats := &HostStats{
 		Temperatures: []Temperature{},
@@ -37,6 +39,9 @@ func GetHostStats() *HostStats {
 
 	// Get CPU usage
 	stats.CPUUsage = getCPUUsage()
+
+	// Get memory info
+	stats.MemTotal, stats.MemFree = getMemoryInfo()
 
 	// Get CPU/SoC temperatures from hwmon
 	stats.Temperatures = getCPUTemperatures()
@@ -51,6 +56,39 @@ func GetHostStats() *HostStats {
 	stats.DiskTotal, stats.DiskFree = getDiskUsage("/")
 
 	return stats
+}
+
+// getMemoryInfo reads memory info from /proc/meminfo
+// Returns MemTotal and MemAvailable (as "free" - more useful than actual MemFree)
+func getMemoryInfo() (uint64, uint64) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, 0
+	}
+
+	var memTotal, memAvailable uint64
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		value, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		// Values in /proc/meminfo are in kB
+		value *= 1024
+
+		switch fields[0] {
+		case "MemTotal:":
+			memTotal = value
+		case "MemAvailable:":
+			memAvailable = value
+		}
+	}
+
+	return memTotal, memAvailable
 }
 
 // getDiskUsage returns total and free disk space for a path

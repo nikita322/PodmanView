@@ -525,16 +525,17 @@ const App = {
             if (data.system && data.system.version) {
                 document.getElementById('info-podman').textContent = data.system.version.Version || '-';
             }
-            if (data.system && data.system.host && data.system.host.memTotal) {
-                const memTotal = this.formatBytes(data.system.host.memTotal);
-                const memFree = this.formatBytes(data.system.host.memFree);
-                document.getElementById('info-memory').textContent = `${memFree} free / ${memTotal} total`;
-            }
-
-            // Update host stats (CPU, uptime, disk, temperatures)
+            // Update host stats (CPU, memory, uptime, disk, temperatures)
             if (data.hostStats) {
                 document.getElementById('info-cpu').textContent = data.hostStats.cpuUsage.toFixed(1) + '%';
                 document.getElementById('info-uptime').textContent = this.formatUptime(data.hostStats.uptime);
+
+                // Update memory (using MemAvailable for accurate "free" memory)
+                if (data.hostStats.memTotal) {
+                    const memFree = this.formatBytes(data.hostStats.memFree);
+                    const memTotal = this.formatBytes(data.hostStats.memTotal);
+                    document.getElementById('info-memory').textContent = `${memFree} free / ${memTotal} total`;
+                }
 
                 // Update disk
                 if (data.hostStats.diskTotal) {

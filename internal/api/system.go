@@ -57,8 +57,6 @@ type DashboardHostInfo struct {
 	Arch     string `json:"arch"`
 	Hostname string `json:"hostname"`
 	Kernel   string `json:"kernel"`
-	MemTotal int64  `json:"memTotal"`
-	MemFree  int64  `json:"memFree"`
 }
 
 // DashboardVersionInfo contains only used version fields
@@ -112,8 +110,6 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 			Arch:     sysInfo.Host.Arch,
 			Hostname: sysInfo.Host.Hostname,
 			Kernel:   sysInfo.Host.Kernel,
-			MemTotal: sysInfo.Host.MemTotal,
-			MemFree:  sysInfo.Host.MemFree,
 		},
 		Version: DashboardVersionInfo{
 			Version: sysInfo.Version.Version,

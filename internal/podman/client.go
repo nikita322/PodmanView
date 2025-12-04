@@ -693,19 +693,12 @@ func (c *Client) RemovePod(ctx context.Context, id string, force bool) error {
 // System types
 type SystemInfo struct {
 	Host struct {
-		Arch       string `json:"arch"`
-		Hostname   string `json:"hostname"`
-		Kernel     string `json:"kernel"`
-		Uptime     string `json:"uptime"`
-		MemTotal   int64  `json:"memTotal"`
-		MemFree    int64  `json:"memFree"`
-		SwapTotal  int64  `json:"swapTotal"`
-		SwapFree   int64  `json:"swapFree"`
+		Arch     string `json:"arch"`
+		Hostname string `json:"hostname"`
+		Kernel   string `json:"kernel"`
 	} `json:"host"`
 	Version struct {
-		Version    string `json:"Version"`
-		APIVersion string `json:"APIVersion"`
-		GoVersion  string `json:"GoVersion"`
+		Version string `json:"Version"`
 	} `json:"version"`
 }
 
