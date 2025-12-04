@@ -311,6 +311,14 @@
                 <h2>Container Logs</h2>
                 <button type="button" class="btn-close" onclick="closeModal('modal-logs')">&times;</button>
             </div>
+            <div class="logs-toolbar">
+                <label class="toggle-label">
+                    <input type="checkbox" id="logs-auto-checkbox" onchange="App.toggleAutoLogs()">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">Auto</span>
+                </label>
+                <button type="button" id="logs-refresh-btn" class="btn" onclick="App.refreshLogs()">Refresh</button>
+            </div>
             <div id="logs-content" class="logs-viewer"></div>
         </div>
     </div>

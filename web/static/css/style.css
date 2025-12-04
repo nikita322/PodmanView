@@ -874,6 +874,13 @@ body {
     color: var(--danger);
 }
 
+.logs-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
 /* Toast notifications */
 #toast-container {
     position: fixed;

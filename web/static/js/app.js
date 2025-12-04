@@ -13,6 +13,8 @@ const App = {
     autoRefreshDelay: 5000, // 5 seconds
     xtermLoaded: false,
     xtermLoading: false,
+    logsContainerId: null,
+    logsAutoInterval: null,
 
     // Lazy load xterm library
     async loadXterm() {
@@ -798,12 +800,25 @@ const App = {
     },
 
     async viewLogs(id) {
-        const logsContent = document.getElementById('logs-content');
-        logsContent.innerHTML = '<div class="log-loading">Loading...</div>';
+        this.logsContainerId = id;
+        this.stopAutoLogs();
         this.showModal('modal-logs');
+        await this.fetchLogs();
+    },
+
+    async fetchLogs() {
+        if (!this.logsContainerId) return;
+
+        const logsContent = document.getElementById('logs-content');
+        const wasScrolledToBottom = logsContent.scrollHeight - logsContent.scrollTop <= logsContent.clientHeight + 50;
+
+        // Only show loading on first load
+        if (!logsContent.querySelector('.log-line')) {
+            logsContent.innerHTML = '<div class="log-loading">Loading...</div>';
+        }
 
         try {
-            const response = await this.authFetch(`/api/containers/${id}/logs?tail=200`);
+            const response = await this.authFetch(`/api/containers/${this.logsContainerId}/logs?tail=200`);
             if (!response.ok) throw new Error('Failed to load logs');
             const data = await response.json();
 
@@ -814,17 +829,44 @@ const App = {
 
             // Build log lines with line numbers
             const html = data.lines.map((line, index) => {
-                const lineNum = data.lines.length - index; // Newest first, so reverse numbering
+                const lineNum = data.lines.length - index;
                 const escapedLine = this.escapeHtml(line) || '&nbsp;';
                 return `<div class="log-line"><span class="log-num">${lineNum}</span><span class="log-text">${escapedLine}</span></div>`;
             }).join('');
 
             logsContent.innerHTML = html;
+
+            // Keep scroll at bottom if it was there
+            if (wasScrolledToBottom) {
+                logsContent.scrollTop = logsContent.scrollHeight;
+            }
         } catch (error) {
             if (error.message !== 'Session expired') {
                 logsContent.innerHTML = '<div class="log-error">Error loading logs</div>';
             }
         }
+    },
+
+    refreshLogs() {
+        this.fetchLogs();
+    },
+
+    toggleAutoLogs() {
+        const checkbox = document.getElementById('logs-auto-checkbox');
+        if (checkbox.checked) {
+            this.logsAutoInterval = setInterval(() => this.fetchLogs(), 3000);
+        } else {
+            this.stopAutoLogs();
+        }
+    },
+
+    stopAutoLogs() {
+        if (this.logsAutoInterval) {
+            clearInterval(this.logsAutoInterval);
+            this.logsAutoInterval = null;
+        }
+        const checkbox = document.getElementById('logs-auto-checkbox');
+        if (checkbox) checkbox.checked = false;
     },
 
     escapeHtml(text) {
@@ -1196,6 +1238,11 @@ const App = {
 
     closeModal(id) {
         document.getElementById(id).classList.add('hidden');
+        // Stop auto-refresh when closing logs modal
+        if (id === 'modal-logs') {
+            this.stopAutoLogs();
+            this.logsContainerId = null;
+        }
     },
 
     // Toast notifications
