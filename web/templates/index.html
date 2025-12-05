@@ -50,22 +50,6 @@
             <div class="logo">
                 <img src="/static/img/logo.svg" alt="RVPodView" class="logo-icon">
                 <h2>RVPodView</h2>
-                <div class="events-bell" id="events-bell" onclick="App.toggleEvents(event)">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                    </svg>
-                    <span class="events-badge hidden" id="events-badge"></span>
-                </div>
-                <div class="events-dropdown hidden" id="events-dropdown">
-                    <div class="events-header">
-                        <span>Event Log</span>
-                        <button class="events-close" onclick="App.toggleEvents()">&times;</button>
-                    </div>
-                    <div class="events-list" id="events-list">
-                        <div class="events-empty">No events yet</div>
-                    </div>
-                </div>
             </div>
             <nav>
                 <a href="#" class="nav-item active" data-page="dashboard">
@@ -209,21 +193,39 @@
                             <div class="maintenance-title">System Prune</div>
                             <div class="maintenance-desc">Remove unused containers, images, and volumes to free up disk space.</div>
                         </div>
-                        <button id="system-prune-btn" class="btn btn-danger">Prune</button>
+                        <button id="system-prune-btn" class="btn btn-danger btn-with-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                            <span>Prune</span>
+                        </button>
                     </div>
                     <div class="maintenance-item">
                         <div>
                             <div class="maintenance-title">Reboot Host</div>
                             <div class="maintenance-desc">Restart the host system. All containers will be stopped.</div>
                         </div>
-                        <button id="system-reboot-btn" class="btn btn-warning">Reboot</button>
+                        <button id="system-reboot-btn" class="btn btn-warning btn-with-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                            </svg>
+                            <span>Reboot</span>
+                        </button>
                     </div>
                     <div class="maintenance-item">
                         <div>
                             <div class="maintenance-title">Shutdown Host</div>
                             <div class="maintenance-desc">Power off the host system.</div>
                         </div>
-                        <button id="system-shutdown-btn" class="btn btn-danger">Shutdown</button>
+                        <button id="system-shutdown-btn" class="btn btn-danger btn-with-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                                <line x1="12" y1="2" x2="12" y2="12"/>
+                            </svg>
+                            <span>Shutdown</span>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -301,6 +303,26 @@
             </section>
 
         </main>
+
+        <!-- Events Bell (fixed position) -->
+        <div class="events-container" id="events-container">
+            <button class="events-bell" id="events-bell" onclick="App.toggleEvents(event)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                <span class="events-badge hidden" id="events-badge"></span>
+            </button>
+            <div class="events-dropdown hidden" id="events-dropdown">
+                <div class="events-header">
+                    <span>Event Log</span>
+                    <button class="events-close" onclick="App.toggleEvents()">&times;</button>
+                </div>
+                <div class="events-list" id="events-list">
+                    <div class="events-empty">No events yet</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal for Pull Image -->
