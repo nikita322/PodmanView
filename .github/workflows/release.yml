@@ -47,7 +47,22 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: riscv64
+          platforms: riscv64,arm64
+
+      - name: Build for ARM64
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e VERSION="${{ steps.version.outputs.VERSION }}" \
+            docker.io/arm64v8/debian:bookworm-slim \
+            bash -c '
+              apt-get update && \
+              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
+              go mod tidy && \
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+            '
+          tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz rvpodview web/
 
       - name: Build for RISC-V 64-bit
         run: |
@@ -67,5 +82,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz
+          files: |
+            rvpodview-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz
+            rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz
           generate_release_notes: true
