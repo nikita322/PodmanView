@@ -55,7 +55,7 @@ jobs:
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             -e VERSION="${{ steps.version.outputs.VERSION }}" \
-            docker.io/arm64v8/debian:trixie-slim \
+            debian:trixie-slim \
             bash -c '
               apt-get update && \
               apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
