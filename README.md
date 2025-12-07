@@ -72,7 +72,7 @@ After=network.target podman.socket
 [Service]
 Type=simple
 WorkingDirectory=/opt/podmanview
-ExecStart=/opt/podmanview/podmanview -addr :80
+ExecStart=/opt/podmanview/podmanview
 Restart=always
 RestartSec=5
 
@@ -86,18 +86,38 @@ sudo systemctl enable podmanview
 sudo systemctl start podmanview
 ```
 
-### Command Line Options
+### Configuration
 
+PodmanView uses a `.env` file for configuration. On first run, it automatically creates `.env` with default values and generates a secure JWT secret.
+
+#### Configuration File (.env)
+
+```bash
+# Server address (host:port)
+PODMANVIEW_ADDR=:80
+
+# JWT secret key (auto-generated on first run)
+PODMANVIEW_JWT_SECRET=
+
+# JWT token expiration in seconds (default: 24 hours)
+PODMANVIEW_JWT_EXPIRATION=86400
+
+# Disable authentication (development only!)
+PODMANVIEW_NO_AUTH=false
+
+# Podman socket path (auto-detect if empty)
+PODMANVIEW_SOCKET=
 ```
--addr string    HTTP server address (default ":80")
--socket string  Podman socket path (auto-detect if empty)
--secret string  JWT secret key (auto-generate if empty)
--no-auth        Disable authentication (development only!)
-```
 
-### Environment Variables
+#### Configuration Behavior
 
-- `PODMANVIEW_JWT_SECRET` - JWT secret key
+- **First run**: Creates `.env` with defaults and auto-generates JWT secret
+- **Subsequent runs**: Loads settings from `.env` file
+- **Missing JWT secret**: Auto-generates and saves to file
+- **Runtime changes**: Configuration stored in memory, changes update both memory and file
+- **System env vars**: Ignored - only `.env` file is used for predictable behavior
+
+See `.env.example` for full documentation of all options.
 
 ## Usage
 
@@ -205,6 +225,8 @@ podmanview/
 ├── internal/
 │   ├── api/            # HTTP handlers
 │   ├── auth/           # PAM authentication & JWT
+│   ├── config/         # Configuration management (.env)
+│   ├── events/         # Event store
 │   └── podman/         # Podman client
 ├── web/
 │   ├── static/
@@ -212,6 +234,7 @@ podmanview/
 │   │   ├── js/         # Frontend JavaScript
 │   │   └── img/        # Icons and images
 │   └── templates/      # HTML templates
+├── .env.example        # Configuration template
 ├── Makefile            # Build commands
 └── README.md
 ```
@@ -219,9 +242,10 @@ podmanview/
 ## Security Notes
 
 - Always use HTTPS in production (via reverse proxy like nginx)
-- The `-no-auth` flag should never be used in production
+- `PODMANVIEW_NO_AUTH=true` should never be used in production
 - PAM authentication uses system credentials - use strong passwords
 - Admin access is restricted to users in wheel/sudo groups
+- JWT secret is auto-generated and stored in `.env` - keep this file secure
 
 ## License
 

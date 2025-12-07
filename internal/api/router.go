@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"podmanview/internal/auth"
+	"podmanview/internal/config"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
 )
@@ -21,13 +22,13 @@ type Server struct {
 	authMw       *auth.Middleware
 	wsTokenStore *auth.WSTokenStore
 	eventStore   *events.Store
-	noAuth       bool
+	config       *config.Config
 }
 
 // NewServer creates new API server
-func NewServer(podmanClient *podman.Client, jwtSecret string, noAuth bool) *Server {
+func NewServer(podmanClient *podman.Client, cfg *config.Config) *Server {
 	pamAuth := auth.NewPAMAuth()
-	jwtManager := auth.NewJWTManager(jwtSecret, 24*60*60*1000000000) // 24 hours
+	jwtManager := auth.NewJWTManager(cfg.JWTSecret(), cfg.JWTExpiration())
 	authMw := auth.NewMiddleware(jwtManager)
 	wsTokenStore := auth.NewWSTokenStore()
 	eventStore := events.NewStore(100) // Keep last 100 events in memory
@@ -40,7 +41,7 @@ func NewServer(podmanClient *podman.Client, jwtSecret string, noAuth bool) *Serv
 		authMw:       authMw,
 		wsTokenStore: wsTokenStore,
 		eventStore:   eventStore,
-		noAuth:       noAuth,
+		config:       cfg,
 	}
 
 	s.setupRoutes()
@@ -69,8 +70,8 @@ func (s *Server) setupRoutes() {
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
-		// Apply auth middleware only if noAuth is false
-		if !s.noAuth {
+		// Apply auth middleware only if NoAuth is false
+		if !s.config.NoAuth() {
 			r.Use(s.authMw.RequireAuth)
 		} else {
 			// In no-auth mode, inject a fake admin user

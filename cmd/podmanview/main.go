@@ -1,37 +1,33 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 
 	"podmanview/internal/api"
+	"podmanview/internal/config"
 	"podmanview/internal/podman"
 )
 
 func main() {
-	// Load .env file
-	loadEnvFile(".env")
+	// Load configuration from .env file
+	cfg, err := config.Load(".env")
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 
-	// Command line flags
-	addr := flag.String("addr", ":80", "HTTP server address")
-	socketPath := flag.String("socket", "", "Podman socket path (auto-detect if empty)")
-	jwtSecret := flag.String("secret", "", "JWT secret key (auto-generate if empty)")
-	noAuth := flag.Bool("no-auth", false, "Disable authentication (for development only!)")
-	flag.Parse()
+	log.Printf("Configuration loaded: %s", cfg)
 
 	// Create Podman client
 	var client *podman.Client
-	var err error
 
-	if *socketPath != "" {
-		client, err = podman.NewClientWithSocket(*socketPath)
+	socketPath := cfg.SocketPath()
+	if socketPath != "" {
+		client, err = podman.NewClientWithSocket(socketPath)
 	} else {
 		client, err = podman.NewClient()
 	}
@@ -45,29 +41,27 @@ func main() {
 		log.Fatalf("Failed to ping Podman: %v", err)
 	}
 
-	// Get JWT secret from env or flag
-	secret := *jwtSecret
-	if secret == "" {
-		secret = os.Getenv("PODMANVIEW_JWT_SECRET")
-	}
-
 	// Create API server
-	server := api.NewServer(client, secret, *noAuth)
+	server := api.NewServer(client, cfg)
 
 	// Start server
-	fmt.Printf("PodmanView starting on %s\n", *addr)
-	if *noAuth {
+	addr := cfg.Addr()
+	fmt.Printf("PodmanView starting on %s\n", addr)
+
+	if cfg.NoAuth() {
 		fmt.Println("WARNING: Authentication is DISABLED!")
 	}
 
 	// Print access URLs
-	port := *addr
+	port := addr
 	if strings.HasPrefix(port, ":") {
 		port = port[1:]
+	} else if idx := strings.LastIndex(port, ":"); idx != -1 {
+		port = port[idx+1:]
 	}
 	printAccessURLs(port)
 
-	if err := http.ListenAndServe(*addr, server.Router()); err != nil {
+	if err := http.ListenAndServe(addr, server.Router()); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
@@ -126,38 +120,4 @@ func printAccessURLs(port string) {
 		fmt.Printf("  http://%s:%s\n", ip, port)
 	}
 	fmt.Println()
-}
-
-// loadEnvFile loads environment variables from a file
-func loadEnvFile(filename string) {
-	file, err := os.Open(filename)
-	if err != nil {
-		// .env file is optional
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Parse KEY=value
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		// Don't override existing env variables
-		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
-		}
-	}
 }

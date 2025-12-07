@@ -282,7 +282,7 @@ func (h *ContainerHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": result.ID, "status": status})
 }
 
-// parsePortMappings parses port mappings from string like "8080:80, 443:443"
+// parsePortMappings parses port mappings from string like "80:80, 443:443"
 func parsePortMappings(ports string) []podman.PortMapping {
 	var mappings []podman.PortMapping
 	parts := strings.Split(ports, ",")
