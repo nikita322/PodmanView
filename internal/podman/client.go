@@ -733,11 +733,6 @@ func (c *Client) GetSystemDF(ctx context.Context) (*SystemDF, error) {
 	return &df, err
 }
 
-// SystemPrune cleans up unused resources
-func (c *Client) SystemPrune(ctx context.Context) error {
-	return c.post(ctx, "/v4.0.0/libpod/system/prune", nil)
-}
-
 // Ping checks if Podman API is available
 func (c *Client) Ping(ctx context.Context) error {
 	resp, err := c.request(ctx, http.MethodGet, "/_ping", nil)

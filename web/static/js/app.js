@@ -106,7 +106,6 @@ const App = {
         // Dashboard
         document.getElementById('refresh-dashboard').addEventListener('click', () => this.loadDashboard());
         document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => this.setAutoRefresh('dashboard', e.target.checked));
-        document.getElementById('system-prune-btn').addEventListener('click', () => this.confirmAction('System Prune', 'This will remove all unused containers, images, and volumes. Are you sure?', () => this.systemPrune()));
         document.getElementById('system-reboot-btn').addEventListener('click', () => this.confirmAction('Reboot Host', 'Are you sure you want to reboot the host system? All containers will be stopped.', () => this.systemReboot()));
         document.getElementById('system-shutdown-btn').addEventListener('click', () => this.confirmAction('Shutdown Host', 'Are you sure you want to shutdown the host system? All containers will be stopped and the system will power off.', () => this.systemShutdown()));
 
@@ -441,8 +440,7 @@ const App = {
             'image_pull': 'Image Pull',
             'image_remove': 'Image Remove',
             'system_reboot': 'System Reboot',
-            'system_shutdown': 'System Shutdown',
-            'system_prune': 'System Prune'
+            'system_shutdown': 'System Shutdown'
         };
 
         list.innerHTML = events.map(event => {
@@ -1209,26 +1207,6 @@ const App = {
                 if (error.message !== 'Session expired') this.showToast('Failed to remove image', 'error');
             }
         });
-    },
-
-    // System prune
-    async systemPrune() {
-        const btn = document.getElementById('system-prune-btn');
-        btn.disabled = true;
-        btn.textContent = 'Cleaning...';
-        this.showToast('Cleaning system...', 'info');
-
-        try {
-            const response = await this.authFetch('/api/system/prune', { method: 'POST' });
-            if (!response.ok) throw new Error('Failed to prune system');
-            this.showToast('System cleaned successfully', 'success');
-            this.loadDashboard();
-        } catch (error) {
-            if (error.message !== 'Session expired') this.showToast('Failed to prune system', 'error');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'System Prune';
-        }
     },
 
     // Confirm action modal

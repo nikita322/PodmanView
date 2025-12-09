@@ -225,24 +225,6 @@ func (h *SystemHandler) DiskUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, df)
 }
 
-// Prune handles POST /api/system/prune
-func (h *SystemHandler) Prune(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUserFromContext(r.Context())
-	if !user.IsAdmin() {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
-		return
-	}
-
-	if err := h.client.SystemPrune(r.Context()); err != nil {
-		h.eventStore.Add(events.EventSystemPrune, user.Username, getClientIP(r), false, err.Error())
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	h.eventStore.Add(events.EventSystemPrune, user.Username, getClientIP(r), true, "")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "pruned"})
-}
-
 // Reboot handles POST /api/system/reboot
 func (h *SystemHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
