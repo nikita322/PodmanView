@@ -14,14 +14,30 @@ import (
 
 // HostStats represents CPU, memory, temperature, uptime and disk info
 type HostStats struct {
-	CPUUsage        float64       `json:"cpuUsage"`
-	MemTotal        uint64        `json:"memTotal"`                  // bytes
-	MemFree         uint64        `json:"memFree"`                   // bytes (MemAvailable from /proc/meminfo)
-	Temperatures    []Temperature `json:"temperatures"`              // CPU/SoC temperatures
-	StorageTemps    []Temperature `json:"storageTemps,omitempty"`    // NVMe/Storage temperatures
-	Uptime          int64         `json:"uptime"`                    // seconds
-	DiskTotal       uint64        `json:"diskTotal"`                 // bytes
-	DiskFree        uint64        `json:"diskFree"`                  // bytes
+	CPUUsage        float64        `json:"cpuUsage"`
+	MemTotal        uint64         `json:"memTotal"`               // bytes
+	MemFree         uint64         `json:"memFree"`                // bytes (MemAvailable from /proc/meminfo)
+	Temperatures    []Temperature  `json:"temperatures"`           // CPU/SoC temperatures
+	StorageTemps    []StorageTemp  `json:"storageTemps,omitempty"` // NVMe/Storage temperatures grouped by device
+	Uptime          int64          `json:"uptime"`                 // seconds
+	DiskTotal       uint64         `json:"diskTotal"`              // bytes (deprecated, kept for compatibility)
+	DiskFree        uint64         `json:"diskFree"`               // bytes (deprecated, kept for compatibility)
+	Disks           []DiskInfo     `json:"disks,omitempty"`        // All disks info
+}
+
+// DiskInfo represents disk usage information
+type DiskInfo struct {
+	Device     string `json:"device"`     // Device name (e.g., nvme0n1, sda)
+	MountPoint string `json:"mountPoint"` // Mount point path
+	Total      uint64 `json:"total"`      // Total size in bytes
+	Free       uint64 `json:"free"`       // Free space in bytes
+	Used       uint64 `json:"used"`       // Used space in bytes
+}
+
+// StorageTemp represents storage device temperatures grouped by device
+type StorageTemp struct {
+	Device  string        `json:"device"`  // Device name (e.g., nvme0n1)
+	Sensors []Temperature `json:"sensors"` // Temperature sensors for this device
 }
 
 // Temperature represents a temperature sensor reading
@@ -34,7 +50,8 @@ type Temperature struct {
 func GetHostStats() *HostStats {
 	stats := &HostStats{
 		Temperatures: []Temperature{},
-		StorageTemps: []Temperature{},
+		StorageTemps: []StorageTemp{},
+		Disks:        []DiskInfo{},
 	}
 
 	// Get CPU usage
@@ -46,13 +63,16 @@ func GetHostStats() *HostStats {
 	// Get CPU/SoC temperatures from hwmon
 	stats.Temperatures = getCPUTemperatures()
 
-	// Get NVMe/Storage temperatures
-	stats.StorageTemps = getNVMeTemperatures()
+	// Get NVMe/Storage temperatures (grouped by device)
+	stats.StorageTemps = getNVMeTemperaturesGrouped()
 
 	// Get uptime
 	stats.Uptime = getUptime()
 
-	// Get disk usage
+	// Get all disks usage
+	stats.Disks = getAllDisksUsage()
+
+	// Keep backward compatibility - use root disk for DiskTotal/DiskFree
 	stats.DiskTotal, stats.DiskFree = getDiskUsage("/")
 
 	return stats
@@ -280,14 +300,14 @@ func getCPUTemperatures() []Temperature {
 	return temps
 }
 
-// getNVMeTemperatures reads temperatures from NVMe devices using nvme-cli
-func getNVMeTemperatures() []Temperature {
-	temps := []Temperature{}
+// getNVMeTemperaturesGrouped reads temperatures from NVMe devices and groups by device
+func getNVMeTemperaturesGrouped() []StorageTemp {
+	result := []StorageTemp{}
 
 	// Scan /sys/block for nvme devices
 	entries, err := os.ReadDir("/sys/block")
 	if err != nil {
-		return temps
+		return result
 	}
 
 	for _, entry := range entries {
@@ -313,13 +333,17 @@ func getNVMeTemperatures() []Temperature {
 		}
 
 		outputStr := string(output)
+		deviceTemps := StorageTemp{
+			Device:  deviceName,
+			Sensors: []Temperature{},
+		}
 
 		// Parse main temperature: "temperature                             : 53 °C (326 K)"
 		reMain := regexp.MustCompile(`(?m)^temperature\s*:\s*(\d+)\s*°?C`)
 		if matches := reMain.FindStringSubmatch(outputStr); len(matches) >= 2 {
 			if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				temps = append(temps, Temperature{
-					Label: deviceName,
+				deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
+					Label: "Composite",
 					Temp:  tempC,
 				})
 			}
@@ -332,14 +356,107 @@ func getNVMeTemperatures() []Temperature {
 			if len(match) >= 3 {
 				sensorNum := match[1]
 				if tempC, err := strconv.ParseFloat(match[2], 64); err == nil {
-					temps = append(temps, Temperature{
-						Label: deviceName + " Sensor " + sensorNum,
+					deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
+						Label: "Sensor " + sensorNum,
 						Temp:  tempC,
 					})
 				}
 			}
 		}
+
+		if len(deviceTemps.Sensors) > 0 {
+			result = append(result, deviceTemps)
+		}
 	}
 
-	return temps
+	return result
+}
+
+// getAllDisksUsage returns usage info for all mounted block devices
+func getAllDisksUsage() []DiskInfo {
+	disks := []DiskInfo{}
+	seen := make(map[string]bool)
+
+	// Read /proc/mounts to find all mounted filesystems
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return disks
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		device := fields[0]
+		mountPoint := fields[1]
+
+		// Skip non-device mounts
+		if !strings.HasPrefix(device, "/dev/") {
+			continue
+		}
+
+		// Skip pseudo filesystems
+		if strings.HasPrefix(device, "/dev/loop") {
+			continue
+		}
+
+		// Get the base device name (e.g., nvme0n1 from /dev/nvme0n1p1)
+		deviceName := strings.TrimPrefix(device, "/dev/")
+
+		// For partitions, get the parent device
+		baseDevice := deviceName
+		if strings.HasPrefix(deviceName, "nvme") {
+			// NVMe: nvme0n1p1 -> nvme0n1
+			if idx := strings.Index(deviceName, "p"); idx > 0 {
+				// Check if there's a number after 'p' (partition indicator)
+				rest := deviceName[idx+1:]
+				if len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
+					baseDevice = deviceName[:idx]
+				}
+			}
+		} else if strings.HasPrefix(deviceName, "sd") || strings.HasPrefix(deviceName, "vd") || strings.HasPrefix(deviceName, "hd") {
+			// Traditional: sda1 -> sda
+			for i := len(deviceName) - 1; i >= 0; i-- {
+				if deviceName[i] < '0' || deviceName[i] > '9' {
+					baseDevice = deviceName[:i+1]
+					break
+				}
+			}
+		}
+
+		// Skip if we already have this device (use first mount point)
+		if seen[baseDevice] {
+			continue
+		}
+
+		// Get disk usage for this mount point
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(mountPoint, &stat); err != nil {
+			continue
+		}
+
+		total := stat.Blocks * uint64(stat.Bsize)
+		free := stat.Bfree * uint64(stat.Bsize)   // Total free (including reserved)
+		avail := stat.Bavail * uint64(stat.Bsize) // Available for non-root users
+		used := total - free
+
+		// Skip tiny filesystems (< 100MB)
+		if total < 100*1024*1024 {
+			continue
+		}
+
+		seen[baseDevice] = true
+		disks = append(disks, DiskInfo{
+			Device:     baseDevice,
+			MountPoint: mountPoint,
+			Total:      total,
+			Free:       avail, // Show available space (what user can actually use)
+			Used:       used,
+		})
+	}
+
+	return disks
 }

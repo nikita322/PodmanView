@@ -1745,6 +1745,72 @@ body.is-admin .page-actions .admin-only {
     50% { opacity: 0.5; }
 }
 
+/* Disks list */
+.disks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.disk-item {
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+.disk-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.disk-device {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.disk-mount {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: monospace;
+}
+
+.disk-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.disk-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.disk-bar-fill.normal {
+    background: var(--success);
+}
+
+.disk-bar-fill.warning {
+    background: var(--warning);
+}
+
+.disk-bar-fill.critical {
+    background: var(--danger);
+}
+
+.disk-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
 /* Form rows */
 .form-row {
     display: grid;

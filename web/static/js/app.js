@@ -716,12 +716,29 @@ const App = {
                     document.getElementById('info-memory').textContent = `${memFree} free / ${memTotal} total`;
                 }
 
-                // Update disk
-                if (data.hostStats.diskTotal) {
+                // Update disks
+                const disksList = document.getElementById('disks-list');
+                const singleDisk = document.getElementById('info-disk');
+
+                if (data.hostStats.disks && data.hostStats.disks.length > 0) {
+                    if (data.hostStats.disks.length === 1) {
+                        // Single disk - show inline
+                        const d = data.hostStats.disks[0];
+                        singleDisk.textContent = `${this.formatBytes(d.used)} / ${this.formatBytes(d.total)}`;
+                        singleDisk.parentElement.style.display = '';
+                        disksList.style.display = 'none';
+                    } else {
+                        // Multiple disks - show list
+                        singleDisk.parentElement.style.display = 'none';
+                        disksList.innerHTML = data.hostStats.disks.map(d => this.renderDiskItem(d)).join('');
+                        disksList.style.display = '';
+                    }
+                } else if (data.hostStats.diskTotal) {
+                    // Fallback to old format
                     const used = data.hostStats.diskTotal - data.hostStats.diskFree;
-                    const usedStr = this.formatBytes(used);
-                    const totalStr = this.formatBytes(data.hostStats.diskTotal);
-                    document.getElementById('info-disk').textContent = `${usedStr} / ${totalStr}`;
+                    singleDisk.textContent = `${this.formatBytes(used)} / ${this.formatBytes(data.hostStats.diskTotal)}`;
+                    singleDisk.parentElement.style.display = '';
+                    disksList.style.display = 'none';
                 }
 
                 // Update CPU temperatures
@@ -732,16 +749,14 @@ const App = {
                     tempsCpu.innerHTML = '<span class="info-value">No sensors found</span>';
                 }
 
-                // Update Storage temperatures
-                const tempsStorage = document.getElementById('temps-storage');
-                const tempsStorageTitle = document.getElementById('temps-storage-title');
+                // Update Storage temperatures (grouped by device)
+                const tempsStorageContainer = document.getElementById('temps-storage-container');
                 if (data.hostStats.storageTemps && data.hostStats.storageTemps.length > 0) {
-                    tempsStorage.innerHTML = data.hostStats.storageTemps.map(t => this.renderTempItem(t)).join('');
-                    tempsStorage.style.display = '';
-                    tempsStorageTitle.style.display = '';
+                    tempsStorageContainer.innerHTML = data.hostStats.storageTemps.map(device => this.renderStorageDevice(device)).join('');
+                    tempsStorageContainer.style.display = '';
                 } else {
-                    tempsStorage.style.display = 'none';
-                    tempsStorageTitle.style.display = 'none';
+                    tempsStorageContainer.style.display = 'none';
+                    tempsStorageContainer.innerHTML = '';
                 }
             }
         } catch (error) {
@@ -1467,6 +1482,39 @@ const App = {
             <div class="temp-item">
                 <span class="temp-label">${t.label}</span>
                 <span class="temp-value ${tempClass}">${t.temp.toFixed(1)}°C</span>
+            </div>
+        `;
+    },
+
+    renderStorageDevice(device) {
+        const sensorsHtml = device.sensors.map(t => this.renderTempItem(t)).join('');
+        return `
+            <h3 style="margin-top: 16px;">${device.device}</h3>
+            <div class="temps-grid">
+                ${sensorsHtml}
+            </div>
+        `;
+    },
+
+    renderDiskItem(disk) {
+        const usedPercent = disk.total > 0 ? ((disk.used / disk.total) * 100).toFixed(1) : 0;
+        let progressClass = 'normal';
+        if (usedPercent > 90) progressClass = 'critical';
+        else if (usedPercent > 75) progressClass = 'warning';
+
+        return `
+            <div class="disk-item">
+                <div class="disk-header">
+                    <span class="disk-device">${disk.device}</span>
+                    <span class="disk-mount">${disk.mountPoint}</span>
+                </div>
+                <div class="disk-bar">
+                    <div class="disk-bar-fill ${progressClass}" style="width: ${usedPercent}%"></div>
+                </div>
+                <div class="disk-info">
+                    <span>${this.formatBytes(disk.used)} / ${this.formatBytes(disk.total)}</span>
+                    <span>${usedPercent}%</span>
+                </div>
             </div>
         `;
     },
