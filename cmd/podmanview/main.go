@@ -6,17 +6,26 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"podmanview/internal/api"
 	"podmanview/internal/config"
+	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/plugins"
+	"podmanview/internal/plugins/demo"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
 var Version = "dev"
 
 func main() {
+	ctx := context.Background()
+
 	// Load configuration from .env file
 	cfg, err := config.Load(".env")
 	if err != nil {
@@ -40,12 +49,66 @@ func main() {
 	}
 
 	// Test connection
-	if err := client.Ping(context.Background()); err != nil {
+	if err := client.Ping(ctx); err != nil {
 		log.Fatalf("Failed to ping Podman: %v", err)
 	}
 
-	// Create API server
-	server := api.NewServer(client, cfg, Version)
+	// Create event store
+	eventStore := events.NewStore(100)
+
+	// Create plugin registry
+	pluginRegistry := plugins.NewRegistry()
+
+	// Register all available plugins
+	// Add your plugins here
+	if err := pluginRegistry.Register(demo.New()); err != nil {
+		log.Fatalf("Failed to register demo plugin: %v", err)
+	}
+
+	log.Printf("Registered %d plugins", pluginRegistry.Count())
+
+	// Log enabled plugins from config
+	enabledPluginNames := cfg.EnabledPlugins()
+	log.Printf("Enabled plugins from config: %v", enabledPluginNames)
+
+	// Get enabled plugins by config (before Init, so we can't use IsEnabled())
+	enabledPlugins := pluginRegistry.EnabledByConfig(enabledPluginNames)
+	log.Printf("Found %d/%d enabled plugins", len(enabledPlugins), pluginRegistry.Count())
+
+	// Initialize enabled plugins with timeout
+	pluginDeps := &plugins.PluginDependencies{
+		PodmanClient: client,
+		Config:       cfg,
+		EventStore:   eventStore,
+		Logger:       log.Default(),
+	}
+
+	// Initialize plugins with 30 second timeout each
+	for _, p := range enabledPlugins {
+		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if err := p.Init(initCtx, pluginDeps); err != nil {
+			cancel()
+			log.Fatalf("Failed to initialize plugin %s: %v", p.Name(), err)
+		}
+		cancel()
+		log.Printf("Initialized plugin: %s v%s", p.Name(), p.Version())
+	}
+
+	// Start plugins with 10 second timeout each
+	for _, p := range enabledPlugins {
+		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if err := p.Start(startCtx); err != nil {
+			cancel()
+			log.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
+		}
+		cancel()
+		log.Printf("Started plugin: %s", p.Name())
+	}
+
+	// Create API server with ALL plugins (not just enabled)
+	// This allows the API to show all available plugins with their enabled status
+	allPlugins := pluginRegistry.All()
+	server := api.NewServerWithPlugins(client, cfg, Version, allPlugins)
 
 	// Start server
 	addr := cfg.Addr()
@@ -64,9 +127,50 @@ func main() {
 	}
 	printAccessURLs(port)
 
-	if err := http.ListenAndServe(addr, server.Router()); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// Setup graceful shutdown
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: server.Router(),
 	}
+
+	// Channel to listen for interrupt signals
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	// Start HTTP server in goroutine
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	log.Println("Server started. Press Ctrl+C to stop.")
+
+	// Wait for interrupt signal
+	<-stop
+
+	log.Println("Shutting down gracefully...")
+
+	// Create shutdown context with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Shutdown HTTP server
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+
+	// Stop all enabled plugins in reverse order
+	for i := len(enabledPlugins) - 1; i >= 0; i-- {
+		p := enabledPlugins[i]
+		if err := p.Stop(shutdownCtx); err != nil {
+			log.Printf("Error stopping plugin %s: %v", p.Name(), err)
+		} else {
+			log.Printf("Stopped plugin: %s", p.Name())
+		}
+	}
+
+	log.Println("Server stopped")
 }
 
 // getLocalIPs returns all local IP addresses

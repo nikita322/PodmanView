@@ -13,25 +13,32 @@ import (
 	"podmanview/internal/config"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/plugins"
 	"podmanview/internal/updater"
 )
 
 // Server represents the API server
 type Server struct {
-	router       *chi.Mux
-	podmanClient *podman.Client
-	pamAuth      *auth.PAMAuth
-	jwtManager   *auth.JWTManager
-	authMw       *auth.Middleware
-	wsTokenStore *auth.WSTokenStore
-	eventStore   *events.Store
-	config       *config.Config
-	updater      *updater.Updater
+	router         *chi.Mux
+	podmanClient   *podman.Client
+	pamAuth        *auth.PAMAuth
+	jwtManager     *auth.JWTManager
+	authMw         *auth.Middleware
+	wsTokenStore   *auth.WSTokenStore
+	eventStore     *events.Store
+	config         *config.Config
+	updater        *updater.Updater
 	historyHandler *HistoryHandler
+	plugins        []plugins.Plugin
 }
 
-// NewServer creates new API server
+// NewServer creates new API server without plugins
 func NewServer(podmanClient *podman.Client, cfg *config.Config, version string) *Server {
+	return NewServerWithPlugins(podmanClient, cfg, version, nil)
+}
+
+// NewServerWithPlugins creates new API server with plugins
+func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, version string, pluginList []plugins.Plugin) *Server {
 	pamAuth := auth.NewPAMAuth()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret(), cfg.JWTExpiration())
 	authMw := auth.NewMiddleware(jwtManager)
@@ -66,6 +73,7 @@ func NewServer(podmanClient *podman.Client, cfg *config.Config, version string) 
 		config:         cfg,
 		updater:        upd,
 		historyHandler: historyHandler,
+		plugins:        pluginList,
 	}
 
 	s.setupRoutes()
@@ -89,7 +97,8 @@ func (s *Server) setupRoutes() {
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
-	fileManagerHandler := NewFileManagerHandler(s.eventStore, "") // Empty baseDir means use home dir
+	fileManagerHandler := NewFileManagerHandler(s.eventStore, "")  // Empty baseDir means use home dir
+	pluginHandler := NewPluginHandler(s)
 
 	// Public routes
 	r.Post("/api/auth/login", authHandler.Login)
@@ -154,13 +163,72 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/files/rename", fileManagerHandler.Rename)
 		r.Get("/api/files/read", fileManagerHandler.ReadFile)
 		r.Post("/api/files/write", fileManagerHandler.WriteFile)
+
+		// Plugins Management
+		r.Get("/api/plugins", pluginHandler.List)
+		r.Get("/api/plugins/{name}", pluginHandler.Get)
 	})
+
+	// Register plugin routes
+	s.registerPluginRoutes(r)
 
 	// Static files and SPA
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
 	// Serve index.html for all other routes (SPA)
 	r.Get("/*", s.serveIndex)
+}
+
+// registerPluginRoutes registers routes only for enabled plugins
+func (s *Server) registerPluginRoutes(r chi.Router) {
+	if s.plugins == nil || len(s.plugins) == 0 {
+		return
+	}
+
+	for _, plugin := range s.plugins {
+		// Only register routes for enabled plugins
+		if !plugin.IsEnabled() {
+			continue
+		}
+
+		routes := plugin.Routes()
+		if routes == nil {
+			continue
+		}
+
+		for _, route := range routes {
+			// Create local copy to avoid closure capture bug
+			currentRoute := route
+			handler := currentRoute.Handler
+
+			// Wrap with auth middleware if required
+			if currentRoute.RequireAuth && !s.config.NoAuth() {
+				// Create authenticated handler with local copy
+				handler = func(w http.ResponseWriter, req *http.Request) {
+					s.authMw.RequireAuth(http.HandlerFunc(currentRoute.Handler)).ServeHTTP(w, req)
+				}
+			}
+
+			// Register route
+			switch currentRoute.Method {
+			case "GET":
+				r.Get(currentRoute.Path, handler)
+			case "POST":
+				r.Post(currentRoute.Path, handler)
+			case "PUT":
+				r.Put(currentRoute.Path, handler)
+			case "PATCH":
+				r.Patch(currentRoute.Path, handler)
+			case "DELETE":
+				r.Delete(currentRoute.Path, handler)
+			default:
+				log.Printf("Unknown HTTP method for plugin route: %s %s", currentRoute.Method, currentRoute.Path)
+			}
+
+			log.Printf("Registered plugin route: %s %s (auth=%v, plugin=%s)",
+				currentRoute.Method, currentRoute.Path, currentRoute.RequireAuth, plugin.Name())
+		}
+	}
 }
 
 // serveIndex serves the main HTML page
