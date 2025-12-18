@@ -160,16 +160,6 @@ class FileTypeDetector {
         };
         return names[category] || 'Unknown';
     }
-
-    static getSuggestedViewer(category) {
-        const viewers = {
-            text: 'TextViewer', code: 'CodeViewer', markdown: 'MarkdownViewer',
-            image: 'ImageViewer', video: 'VideoViewer', audio: 'AudioViewer',
-            pdf: 'PDFViewer', binary: 'HexViewer',
-            archive: 'DownloadViewer', document: 'DownloadViewer'
-        };
-        return viewers[category] || 'DownloadViewer';
-    }
 }
 
 // ============================================================================
@@ -298,17 +288,6 @@ class BaseFileViewer {
         this.container.appendChild(errorDiv);
     }
 
-    showLoading(message = 'Loading...') {
-        if (!this.container) return;
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'file-viewer-loading';
-        loadingDiv.innerHTML = `
-            <div class="loading-spinner"></div>
-            <div class="loading-message">${this.escapeHtml(message)}</div>
-        `;
-        this.container.appendChild(loadingDiv);
-    }
-
     // Optimized escapeHtml using regex (3-4x faster than DOM-based)
     escapeHtml(text) {
         if (typeof text !== 'string') return '';
@@ -373,10 +352,6 @@ class FileViewerFactory {
 
     static createDownloadViewer(fileData, fileType) {
         return new DownloadViewer(fileData, fileType);
-    }
-
-    static hasViewer(category) {
-        return !!this.VIEWER_MAP[category];
     }
 }
 
