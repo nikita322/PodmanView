@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -14,6 +15,7 @@ import (
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
+	"podmanview/internal/storage"
 	"podmanview/internal/updater"
 )
 
@@ -30,15 +32,19 @@ type Server struct {
 	updater        *updater.Updater
 	historyHandler *HistoryHandler
 	plugins        []plugins.Plugin
+	pluginRegistry *plugins.Registry
+	storage        storage.Storage
+	version        string
+	staticVersion  string
 }
 
 // NewServer creates new API server without plugins
-func NewServer(podmanClient *podman.Client, cfg *config.Config, version string) *Server {
-	return NewServerWithPlugins(podmanClient, cfg, version, nil)
+func NewServer(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string) *Server {
+	return NewServerWithPlugins(podmanClient, cfg, version, staticVersion, nil, nil, nil)
 }
 
 // NewServerWithPlugins creates new API server with plugins
-func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, version string, pluginList []plugins.Plugin) *Server {
+func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string, pluginList []plugins.Plugin, registry *plugins.Registry, pluginStorage storage.Storage) *Server {
 	pamAuth := auth.NewPAMAuth()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret(), cfg.JWTExpiration())
 	authMw := auth.NewMiddleware(jwtManager)
@@ -58,9 +64,8 @@ func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, versi
 		log.Printf("Warning: failed to create updater: %v", err)
 	}
 
-	// Create history handler (store history in .history file)
-	historyFile := ".history"
-	historyHandler := NewHistoryHandler(historyFile)
+	// Create history handler (store history in database)
+	historyHandler := NewHistoryHandler(pluginStorage)
 
 	s := &Server{
 		router:         chi.NewRouter(),
@@ -74,6 +79,10 @@ func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, versi
 		updater:        upd,
 		historyHandler: historyHandler,
 		plugins:        pluginList,
+		pluginRegistry: registry,
+		storage:        pluginStorage,
+		version:        version,
+		staticVersion:  staticVersion,
 	}
 
 	s.setupRoutes()
@@ -169,6 +178,8 @@ func (s *Server) setupRoutes() {
 		// Plugins Management
 		r.Get("/api/plugins", pluginHandler.List)
 		r.Get("/api/plugins/{name}", pluginHandler.Get)
+		r.Get("/api/plugins/{name}/html", pluginHandler.GetHTML)
+		r.Post("/api/plugins/{name}/toggle", pluginHandler.Toggle)
 	})
 
 	// Register plugin routes
@@ -181,61 +192,76 @@ func (s *Server) setupRoutes() {
 	r.Get("/*", s.serveIndex)
 }
 
-// registerPluginRoutes registers routes only for enabled plugins
+// pluginEnabledMiddleware checks if a plugin is enabled
+func (s *Server) pluginEnabledMiddleware(pluginName string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		for _, p := range s.plugins {
+			if p.Name() == pluginName && p.IsEnabled() {
+				next(w, r)
+				return
+			}
+		}
+		http.Error(w, "Plugin not enabled", http.StatusServiceUnavailable)
+	}
+}
+
+// registerPluginRoutes registers routes for all plugins with middleware
 func (s *Server) registerPluginRoutes(r chi.Router) {
 	if s.plugins == nil || len(s.plugins) == 0 {
 		return
 	}
 
 	for _, plugin := range s.plugins {
-		// Only register routes for enabled plugins
-		if !plugin.IsEnabled() {
-			continue
-		}
-
 		routes := plugin.Routes()
 		if routes == nil {
 			continue
 		}
 
 		for _, route := range routes {
-			// Create local copy to avoid closure capture bug
-			currentRoute := route
-			handler := currentRoute.Handler
+			handler := s.pluginEnabledMiddleware(plugin.Name(), route.Handler)
 
-			// Wrap with auth middleware if required
-			if currentRoute.RequireAuth && !s.config.NoAuth() {
-				// Create authenticated handler with local copy
+			if route.RequireAuth && !s.config.NoAuth() {
+				authHandler := handler
 				handler = func(w http.ResponseWriter, req *http.Request) {
-					s.authMw.RequireAuth(http.HandlerFunc(currentRoute.Handler)).ServeHTTP(w, req)
+					s.authMw.RequireAuth(http.HandlerFunc(authHandler)).ServeHTTP(w, req)
 				}
 			}
 
-			// Register route
-			switch currentRoute.Method {
+			switch route.Method {
 			case "GET":
-				r.Get(currentRoute.Path, handler)
+				r.Get(route.Path, handler)
 			case "POST":
-				r.Post(currentRoute.Path, handler)
+				r.Post(route.Path, handler)
 			case "PUT":
-				r.Put(currentRoute.Path, handler)
+				r.Put(route.Path, handler)
 			case "PATCH":
-				r.Patch(currentRoute.Path, handler)
+				r.Patch(route.Path, handler)
 			case "DELETE":
-				r.Delete(currentRoute.Path, handler)
-			default:
-				log.Printf("Unknown HTTP method for plugin route: %s %s", currentRoute.Method, currentRoute.Path)
+				r.Delete(route.Path, handler)
 			}
-
-			log.Printf("Registered plugin route: %s %s (auth=%v, plugin=%s)",
-				currentRoute.Method, currentRoute.Path, currentRoute.RequireAuth, plugin.Name())
 		}
 	}
 }
 
-// serveIndex serves the main HTML page
+// serveIndex serves the main HTML page with version placeholders replaced
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "web/templates/index.html")
+	// Read the template file
+	content, err := os.ReadFile("web/templates/index.html")
+	if err != nil {
+		http.Error(w, "Failed to load page", http.StatusInternalServerError)
+		log.Printf("Error reading index.html: %v", err)
+		return
+	}
+
+	// Replace placeholders
+	html := string(content)
+	html = strings.ReplaceAll(html, "{{VERSION}}", s.version)
+	html = strings.ReplaceAll(html, "{{STATIC_VERSION}}", s.staticVersion)
+
+	// Set content type and write response
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(html))
 }
 
 // Router returns the chi router

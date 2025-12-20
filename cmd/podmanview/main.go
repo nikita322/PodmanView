@@ -18,6 +18,14 @@ import (
 	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/demo"
+	"podmanview/internal/storage"
+)
+
+const (
+	pluginInitTimeout  = 30 * time.Second
+	pluginStartTimeout = 10 * time.Second
+	shutdownTimeout    = 10 * time.Second
+	pluginsDBFile      = "plugins.db"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
@@ -25,6 +33,10 @@ var Version = "dev"
 
 func main() {
 	ctx := context.Background()
+
+	// Generate static files version (timestamp for cache busting)
+	staticVersion := fmt.Sprintf("%d", time.Now().Unix())
+	log.Printf("Static files version: %s", staticVersion)
 
 	// Load configuration from .env file
 	cfg, err := config.Load(".env")
@@ -56,6 +68,27 @@ func main() {
 	// Create event store
 	eventStore := events.NewStore(100)
 
+	// Create or open BoltDB storage for plugins
+	pluginStorage, err := storage.NewBoltStorage(pluginsDBFile)
+	if err != nil {
+		log.Fatalf("Failed to create plugin storage: %v", err)
+	}
+	defer pluginStorage.Close()
+
+	// Initialize default plugin configurations if not present
+	// Check if demo plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("demo")
+	if err == storage.ErrPluginNotFound {
+		// Set default configuration for demo plugin
+		log.Printf("Initializing default configuration for demo plugin")
+		if err := pluginStorage.SetPluginConfig("demo", &storage.PluginConfig{
+			Enabled: true,
+			Name:    "Demo Plugin",
+		}); err != nil {
+			log.Printf("Warning: Failed to set default demo plugin config: %v", err)
+		}
+	}
+
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -67,9 +100,12 @@ func main() {
 
 	log.Printf("Registered %d plugins", pluginRegistry.Count())
 
-	// Log enabled plugins from config
-	enabledPluginNames := cfg.EnabledPlugins()
-	log.Printf("Enabled plugins from config: %v", enabledPluginNames)
+	// Get enabled plugin names from storage
+	enabledPluginNames, err := pluginStorage.ListEnabledPlugins()
+	if err != nil {
+		log.Fatalf("Failed to list enabled plugins: %v", err)
+	}
+	log.Printf("Enabled plugins from storage: %v", enabledPluginNames)
 
 	// Get enabled plugins by config (before Init, so we can't use IsEnabled())
 	enabledPlugins := pluginRegistry.EnabledByConfig(enabledPluginNames)
@@ -81,34 +117,36 @@ func main() {
 		Config:       cfg,
 		EventStore:   eventStore,
 		Logger:       log.Default(),
+		Storage:      pluginStorage,
 	}
 
-	// Initialize plugins with 30 second timeout each
+	// Set dependencies in registry
+	pluginRegistry.SetDependencies(pluginDeps)
+
+	// Initialize plugins
 	for _, p := range enabledPlugins {
-		initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		initCtx, cancel := context.WithTimeout(ctx, pluginInitTimeout)
 		if err := p.Init(initCtx, pluginDeps); err != nil {
 			cancel()
 			log.Fatalf("Failed to initialize plugin %s: %v", p.Name(), err)
 		}
 		cancel()
-		log.Printf("Initialized plugin: %s v%s", p.Name(), p.Version())
 	}
 
-	// Start plugins with 10 second timeout each
+	// Start plugins
 	for _, p := range enabledPlugins {
-		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		startCtx, cancel := context.WithTimeout(ctx, pluginStartTimeout)
 		if err := p.Start(startCtx); err != nil {
 			cancel()
 			log.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
 		}
 		cancel()
-		log.Printf("Started plugin: %s", p.Name())
 	}
 
 	// Create API server with ALL plugins (not just enabled)
 	// This allows the API to show all available plugins with their enabled status
 	allPlugins := pluginRegistry.All()
-	server := api.NewServerWithPlugins(client, cfg, Version, allPlugins)
+	server := api.NewServerWithPlugins(client, cfg, Version, staticVersion, allPlugins, pluginRegistry, pluginStorage)
 
 	// Start server
 	addr := cfg.Addr()
@@ -152,7 +190,7 @@ func main() {
 	log.Println("Shutting down gracefully...")
 
 	// Create shutdown context with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	// Shutdown HTTP server

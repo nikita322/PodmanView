@@ -1,0 +1,267 @@
+<!-- Demo Plugin Interface v2.0 -->
+<section id="page-plugin-demo" class="content-page hidden" data-plugin-version="2.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="demo-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">Demo Plugin</h1>
+        </div>
+        <div class="page-actions">
+            <button id="demo-refresh-btn" class="btn">Refresh</button>
+        </div>
+    </div>
+
+    <div class="info-section">
+        <h2>Plugin Information</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Name:</span>
+                <span class="info-value" id="demo-plugin-name">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Version:</span>
+                <span class="info-value" id="demo-plugin-version">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Description:</span>
+                <span class="info-value" id="demo-plugin-description">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="info-value" id="demo-plugin-status">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Uptime:</span>
+                <span class="info-value" id="demo-plugin-uptime">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Counter:</span>
+                <span class="info-value" id="demo-plugin-counter">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Actions</h2>
+        <div class="maintenance-item">
+            <div>
+                <div class="maintenance-title">Ping Plugin</div>
+                <div class="maintenance-desc">Test the plugin connectivity and response time.</div>
+            </div>
+            <button id="demo-ping-btn" class="btn btn-primary btn-with-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                <span>Ping</span>
+            </button>
+        </div>
+        <div class="maintenance-item">
+            <div>
+                <div class="maintenance-title">Increment Counter</div>
+                <div class="maintenance-desc">Increase the plugin counter by one.</div>
+            </div>
+            <button id="demo-counter-btn" class="btn btn-primary btn-with-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                <span>Increment</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Settings</h2>
+        <div id="demo-plugin-settings" class="info-grid">
+            <!-- Settings will be loaded dynamically -->
+        </div>
+    </div>
+</section>
+
+<script>
+// Demo Plugin Client-side Logic
+(function() {
+    'use strict';
+
+    const DemoPlugin = {
+        initialized: false,
+
+        init: function() {
+            if (this.initialized) {
+                console.log('[DemoPlugin] Already initialized, skipping');
+                return;
+            }
+            console.log('[DemoPlugin v2.0] Initializing...');
+            console.log('[DemoPlugin] Page element:', document.getElementById('page-plugin-demo'));
+            this.initialized = true;
+            this.bindEvents();
+            this.loadInfo();
+        },
+
+        bindEvents: function() {
+            const backBtn = document.getElementById('demo-back-btn');
+            const refreshBtn = document.getElementById('demo-refresh-btn');
+            const pingBtn = document.getElementById('demo-ping-btn');
+            const counterBtn = document.getElementById('demo-counter-btn');
+
+            console.log('[DemoPlugin] bindEvents - backBtn exists:', !!backBtn);
+
+            if (backBtn) {
+                console.log('[DemoPlugin] Adding click listener to back button');
+                backBtn.addEventListener('click', () => {
+                    console.log('[DemoPlugin] Back button clicked!');
+                    this.goBack();
+                });
+            }
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => this.loadInfo());
+            }
+            if (pingBtn) {
+                pingBtn.addEventListener('click', () => this.ping());
+            }
+            if (counterBtn) {
+                counterBtn.addEventListener('click', () => this.incrementCounter());
+            }
+        },
+
+        goBack: function() {
+            console.log('[DemoPlugin] goBack called');
+            console.log('[DemoPlugin] App exists:', typeof App !== 'undefined');
+            console.log('[DemoPlugin] App.navigateTo exists:', typeof App !== 'undefined' && typeof App.navigateTo !== 'undefined');
+
+            if (typeof App !== 'undefined' && App.navigateTo) {
+                console.log('[DemoPlugin] Calling App.navigateTo("plugins")');
+                App.navigateTo('plugins');
+            } else {
+                console.error('[DemoPlugin] App or App.navigateTo not available');
+            }
+        },
+
+        loadInfo: async function() {
+            try {
+                const response = await fetch('/api/plugins/demo/info', {
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load plugin info');
+                }
+
+                const data = await response.json();
+                this.updateUI(data);
+            } catch (error) {
+                console.error('Error loading demo plugin info:', error);
+                this.showError('Failed to load plugin information');
+            }
+        },
+
+        ping: async function() {
+            try {
+                const start = Date.now();
+                const response = await fetch('/api/plugins/demo/ping', {
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ping failed');
+                }
+
+                const data = await response.json();
+                const duration = Date.now() - start;
+                this.showSuccess(`Pong! Response time: ${duration}ms`);
+            } catch (error) {
+                console.error('Error pinging plugin:', error);
+                this.showError('Ping failed');
+            }
+        },
+
+        incrementCounter: async function() {
+            try {
+                const response = await fetch('/api/plugins/demo/counter', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to increment counter');
+                }
+
+                const data = await response.json();
+                document.getElementById('demo-plugin-counter').textContent = data.counter;
+                this.showSuccess('Counter incremented to ' + data.counter);
+            } catch (error) {
+                console.error('Error incrementing counter:', error);
+                this.showError('Failed to increment counter');
+            }
+        },
+
+        updateUI: function(data) {
+            document.getElementById('demo-plugin-name').textContent = data.name || '-';
+            document.getElementById('demo-plugin-version').textContent = data.version || '-';
+            document.getElementById('demo-plugin-description').textContent = data.description || '-';
+            document.getElementById('demo-plugin-status').textContent = 'Running';
+            document.getElementById('demo-plugin-uptime').textContent = data.uptime || '-';
+            document.getElementById('demo-plugin-counter').textContent = data.counter || 0;
+
+            // Update settings
+            const settingsContainer = document.getElementById('demo-plugin-settings');
+            settingsContainer.innerHTML = '';
+
+            if (data.settings && Object.keys(data.settings).length > 0) {
+                for (const [key, value] of Object.entries(data.settings)) {
+                    const item = document.createElement('div');
+                    item.className = 'info-item';
+                    item.innerHTML = `
+                        <span class="info-label">${key}:</span>
+                        <span class="info-value">${value}</span>
+                    `;
+                    settingsContainer.appendChild(item);
+                }
+            } else {
+                settingsContainer.innerHTML = '<div class="info-item"><span class="info-label">No settings configured</span></div>';
+            }
+        },
+
+        showSuccess: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'success');
+            } else {
+                alert(message);
+            }
+        },
+
+        showError: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'error');
+            } else {
+                alert(message);
+            }
+        }
+    };
+
+    // Initialize when page is shown
+    const demoPage = document.getElementById('page-plugin-demo');
+    if (demoPage) {
+        // Listen for custom event when page is shown
+        demoPage.addEventListener('plugin-page-shown', function() {
+            console.log('[DemoPlugin] Page shown event received');
+            DemoPlugin.init();
+        });
+
+        // Also init if already visible (fallback)
+        if (!demoPage.classList.contains('hidden')) {
+            console.log('[DemoPlugin] Page already visible, initializing...');
+            DemoPlugin.init();
+        }
+    }
+})();
+</script>

@@ -4,6 +4,7 @@ package demo
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,11 +21,15 @@ type DemoPlugin struct {
 
 // New creates a new DemoPlugin instance
 func New() *DemoPlugin {
+	// Get the path to the HTML file relative to this plugin's directory
+	htmlPath := filepath.Join("internal", "plugins", "demo", "index.html")
+
 	return &DemoPlugin{
 		BasePlugin: plugins.NewBasePlugin(
 			"demo",
 			"Simple demonstration plugin",
 			"1.0.0",
+			htmlPath,
 		),
 	}
 }
@@ -33,11 +38,16 @@ func New() *DemoPlugin {
 func (p *DemoPlugin) Init(ctx context.Context, deps *plugins.PluginDependencies) error {
 	p.SetDependencies(deps)
 
-	p.LogInfo("Initializing demo plugin")
-
-	// Read settings from configuration (if any)
-	message := p.GetPluginSettingOrDefault("MESSAGE", "Hello from Demo Plugin!")
-	p.LogInfo("Config message: %s", message)
+	// Load counter from storage
+	if deps.Storage != nil {
+		counter, err := deps.Storage.GetInt(p.Name(), "counter")
+		if err == nil {
+			p.mu.Lock()
+			p.counter = counter
+			p.mu.Unlock()
+			deps.Logger.Printf("[%s] Loaded counter from storage: %d", p.Name(), counter)
+		}
+	}
 
 	return nil
 }
@@ -45,18 +55,11 @@ func (p *DemoPlugin) Init(ctx context.Context, deps *plugins.PluginDependencies)
 // Start starts the plugin
 func (p *DemoPlugin) Start(ctx context.Context) error {
 	p.startTime = time.Now()
-	p.LogInfo("Starting demo plugin at %s", p.startTime)
-
-	// Add event
-	p.AddEvent("started", "Demo plugin started successfully")
-
 	return nil
 }
 
 // Stop stops the plugin
 func (p *DemoPlugin) Stop(ctx context.Context) error {
-	p.LogInfo("Stopping demo plugin")
-	p.AddEvent("stopped", "Demo plugin stopped")
 	return nil
 }
 
@@ -86,45 +89,30 @@ func (p *DemoPlugin) Routes() []plugins.Route {
 
 // IsEnabled checks if the plugin is enabled
 func (p *DemoPlugin) IsEnabled() bool {
-	if p.Deps() == nil || p.Deps().Config == nil {
+	if p.Deps() == nil || p.Deps().Storage == nil {
 		return false
 	}
-
-	enabled := p.Deps().Config.EnabledPlugins()
-	for _, name := range enabled {
-		if name == p.Name() {
-			return true
-		}
+	enabled, err := p.Deps().Storage.IsPluginEnabled(p.Name())
+	if err != nil {
+		return false
 	}
-
-	return false
+	return enabled
 }
 
 // HTTP Handlers
 
 func (p *DemoPlugin) handleInfo(w http.ResponseWriter, r *http.Request) {
-	uptime := time.Since(p.startTime)
-
 	p.mu.Lock()
 	currentCounter := p.counter
 	p.mu.Unlock()
-
-	// Get non-sensitive settings only (MESSAGE is safe to expose)
-	settings := p.Deps().Config.PluginSettings(p.Name())
-	safeSettings := make(map[string]string)
-	// Only expose whitelisted settings to prevent information disclosure
-	if msg, ok := settings["MESSAGE"]; ok {
-		safeSettings["MESSAGE"] = msg
-	}
 
 	info := map[string]interface{}{
 		"name":        p.Name(),
 		"version":     p.Version(),
 		"description": p.Description(),
 		"start_time":  p.startTime.Format(time.RFC3339),
-		"uptime":      uptime.String(),
+		"uptime":      time.Since(p.startTime).String(),
 		"counter":     currentCounter,
-		"settings":    safeSettings,
 	}
 
 	plugins.WriteJSON(w, http.StatusOK, info)
@@ -146,8 +134,12 @@ func (p *DemoPlugin) handleCounter(w http.ResponseWriter, r *http.Request) {
 	newCounter := p.counter
 	p.mu.Unlock()
 
-	p.AddEvent("counter_incremented", "Counter incremented")
-	p.LogInfo("Counter incremented to %d", newCounter)
+	// Save counter to storage
+	if p.Deps().Storage != nil {
+		if err := p.Deps().Storage.SetInt(p.Name(), "counter", newCounter); err != nil {
+			p.LogError("Failed to save counter to storage: %v", err)
+		}
+	}
 
 	response := map[string]interface{}{
 		"counter": newCounter,

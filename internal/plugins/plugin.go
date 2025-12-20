@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"regexp"
+	"os"
 
 	"podmanview/internal/config"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/storage"
 )
-
-// validEventTypeRegex validates event type format (alphanumeric, underscore, dot)
-var validEventTypeRegex = regexp.MustCompile(`^[a-zA-Z0-9_.]+$`)
 
 // Plugin is the base interface for all plugins
 type Plugin interface {
@@ -44,6 +42,10 @@ type Plugin interface {
 
 	// IsEnabled checks if the plugin should be enabled
 	IsEnabled() bool
+
+	// GetHTML returns the plugin's HTML interface
+	// This HTML will be embedded into the main index.html
+	GetHTML() (string, error)
 }
 
 // PluginDependencies contains dependencies available to plugins
@@ -59,6 +61,9 @@ type PluginDependencies struct {
 
 	// Logger is the application logger
 	Logger *log.Logger
+
+	// Storage is the storage for plugin configurations and data
+	Storage storage.Storage
 }
 
 // Route represents a plugin's HTTP route
@@ -103,14 +108,16 @@ type BasePlugin struct {
 	version     string
 	deps        *PluginDependencies
 	logger      *log.Logger
+	htmlPath    string // Path to the plugin's HTML file
 }
 
 // NewBasePlugin creates a new BasePlugin
-func NewBasePlugin(name, description, version string) *BasePlugin {
+func NewBasePlugin(name, description, version, htmlPath string) *BasePlugin {
 	return &BasePlugin{
 		name:        name,
 		description: description,
 		version:     version,
+		htmlPath:    htmlPath,
 	}
 }
 
@@ -145,68 +152,25 @@ func (p *BasePlugin) Logger() *log.Logger {
 	return p.logger
 }
 
-// LogInfo logs an informational message
-func (p *BasePlugin) LogInfo(format string, v ...interface{}) {
-	if p.logger != nil {
-		// Use fmt.Sprintf to avoid multiple string allocations
-		msg := "[" + p.name + "] " + format
-		p.logger.Printf(msg, v...)
-	}
-}
-
 // LogError logs an error message
 func (p *BasePlugin) LogError(format string, v ...interface{}) {
 	if p.logger != nil {
-		// Use fmt.Sprintf to avoid multiple string allocations
-		msg := "[" + p.name + "] ERROR: " + format
-		p.logger.Printf(msg, v...)
+		p.logger.Printf("["+p.name+"] "+format, v...)
 	}
 }
 
-// AddEvent adds an event to the EventStore
-// eventType must contain only alphanumeric characters, underscores, and dots
-func (p *BasePlugin) AddEvent(eventType, message string) {
-	if p.deps == nil || p.deps.EventStore == nil {
-		return
+
+// GetHTML returns the plugin's HTML interface
+func (p *BasePlugin) GetHTML() (string, error) {
+	if p.htmlPath == "" {
+		return "", nil
 	}
-
-	// Validate eventType to prevent injection
-	if !validEventTypeRegex.MatchString(eventType) {
-		if p.logger != nil {
-			p.logger.Printf("[%s] WARNING: Invalid event type rejected: %q", p.name, eventType)
-		}
-		return
+	// Read HTML file from the plugin's directory
+	content, err := os.ReadFile(p.htmlPath)
+	if err != nil {
+		return "", err
 	}
-
-	// EventStore.Add(eventType EventType, username, ip string, success bool, details string)
-	p.deps.EventStore.Add(
-		events.EventType("plugin."+p.name+"."+eventType),
-		"plugin", // username
-		"",       // ip (plugin doesn't have IP)
-		true,     // success
-		message,  // details
-	)
-}
-
-// GetPluginSetting retrieves a plugin setting from configuration
-func (p *BasePlugin) GetPluginSetting(key string) (string, bool) {
-	if p.deps == nil || p.deps.Config == nil {
-		return "", false
-	}
-	return p.deps.Config.GetPluginSetting(p.name, key)
-}
-
-// GetPluginSettingOrDefault retrieves a plugin setting or returns the default value
-func (p *BasePlugin) GetPluginSettingOrDefault(key, defaultValue string) string {
-	if val, ok := p.GetPluginSetting(key); ok {
-		return val
-	}
-	return defaultValue
-}
-
-// WriteJSON writes JSON response (shared helper for all plugins)
-func (p *BasePlugin) WriteJSON(w http.ResponseWriter, status int, data interface{}) {
-	WriteJSON(w, status, data)
+	return string(content), nil
 }
 
 // WriteJSON is a shared helper function for writing JSON responses

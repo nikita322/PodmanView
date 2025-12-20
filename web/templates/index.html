@@ -6,7 +6,7 @@
     <title>PodmanView</title>
 
     <!-- PWA -->
-    <link rel="manifest" href="/static/manifest.json">
+    <link rel="manifest" href="/static/manifest.json?v={{STATIC_VERSION}}">
     <meta name="theme-color" content="#2d2d44">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="/static/img/logo.svg">
 
     <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v={{STATIC_VERSION}}">
 </head>
 <body>
     <!-- Login Page -->
@@ -90,6 +90,14 @@
                         <polyline points="13 2 13 9 20 9"/>
                     </svg>
                     <span class="nav-text">Files</span>
+                </a>
+                <a href="#" class="nav-item admin-only" data-page="plugins">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                    <span class="nav-text">Plugins</span>
                 </a>
             </nav>
             <div class="user-info">
@@ -307,6 +315,35 @@
                     <h1>Host Terminal</h1>
                 </div>
                 <div id="host-terminal-container" class="host-terminal-container"></div>
+            </section>
+
+            <!-- Plugins Page -->
+            <section id="page-plugins" class="content-page hidden">
+                <div class="page-header">
+                    <h1>Plugins</h1>
+                    <div class="page-actions">
+                        <button id="refresh-plugins" class="btn">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Version</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="plugins-list">
+                            <tr>
+                                <td colspan="5" style="text-align: center;">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </section>
 
             <!-- File Manager Page -->
@@ -589,6 +626,7 @@
     <div id="toast-container"></div>
 
     <!-- Main app - File Manager modules are loaded lazily on demand -->
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v={{STATIC_VERSION}}"></script>
+    <script src="/static/js/plugins.js?v={{STATIC_VERSION}}"></script>
 </body>
 </html>

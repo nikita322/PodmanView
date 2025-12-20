@@ -11,6 +11,7 @@ type Registry struct {
 	mu      sync.RWMutex
 	plugins map[string]Plugin
 	order   []string // registration order
+	deps    *PluginDependencies
 }
 
 // NewRegistry creates a new plugin registry
@@ -19,6 +20,20 @@ func NewRegistry() *Registry {
 		plugins: make(map[string]Plugin),
 		order:   make([]string, 0),
 	}
+}
+
+// SetDependencies sets the dependencies for all plugins
+func (r *Registry) SetDependencies(deps *PluginDependencies) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deps = deps
+}
+
+// Deps returns the plugin dependencies
+func (r *Registry) Deps() *PluginDependencies {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.deps
 }
 
 // Register registers a plugin in the registry
@@ -224,14 +239,67 @@ func (r *Registry) ListInfo() []*PluginInfo {
 	result := make([]*PluginInfo, 0, len(all))
 
 	for _, p := range all {
+		status := "stopped"
+		if p.IsEnabled() {
+			status = "running"
+		}
+
 		result = append(result, &PluginInfo{
 			Name:        p.Name(),
 			Description: p.Description(),
 			Version:     p.Version(),
 			Enabled:     p.IsEnabled(),
-			Status:      "unknown",
+			Status:      status,
 		})
 	}
 
 	return result
+}
+
+// EnablePlugin dynamically enables and starts a plugin
+func (r *Registry) EnablePlugin(ctx context.Context, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	plugin, ok := r.plugins[name]
+	if !ok {
+		return fmt.Errorf("plugin %s not found", name)
+	}
+
+	if plugin.IsEnabled() {
+		return nil // Already enabled
+	}
+
+	if r.deps != nil {
+		if err := plugin.Init(ctx, r.deps); err != nil {
+			return fmt.Errorf("failed to init plugin %s: %w", name, err)
+		}
+	}
+
+	if err := plugin.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start plugin %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// DisablePlugin dynamically stops a plugin
+func (r *Registry) DisablePlugin(ctx context.Context, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	plugin, ok := r.plugins[name]
+	if !ok {
+		return fmt.Errorf("plugin %s not found", name)
+	}
+
+	if !plugin.IsEnabled() {
+		return nil // Already disabled
+	}
+
+	if err := plugin.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop plugin %s: %w", name, err)
+	}
+
+	return nil
 }

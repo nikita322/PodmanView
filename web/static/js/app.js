@@ -489,6 +489,8 @@ const App = {
 
     // Navigate to page
     navigateTo(page) {
+        console.log('[App] navigateTo called with page:', page);
+
         // Cleanup previous page resources
         if (this.currentPage === 'terminal') {
             this.cleanupHostTerminal();
@@ -497,17 +499,35 @@ const App = {
         this.stopAutoRefresh(this.currentPage);
 
         this.currentPage = page;
+        console.log('[App] currentPage set to:', this.currentPage);
 
         // Update nav
+        let navUpdated = false;
         document.querySelectorAll('.nav-item').forEach(item => {
-            item.classList.toggle('active', item.dataset.page === page);
+            const isActive = item.dataset.page === page;
+            item.classList.toggle('active', isActive);
+            if (isActive) {
+                console.log('[App] Nav item activated:', item.dataset.page, item);
+                navUpdated = true;
+            }
         });
+        if (!navUpdated) {
+            console.warn('[App] No nav item found for page:', page);
+        }
+        console.log('[App] Nav updated');
 
         // Show page
         document.querySelectorAll('.content-page').forEach(p => {
             p.classList.add('hidden');
         });
-        document.getElementById('page-' + page).classList.remove('hidden');
+        const targetPage = document.getElementById('page-' + page);
+        console.log('[App] Target page element:', targetPage);
+        if (targetPage) {
+            targetPage.classList.remove('hidden');
+            console.log('[App] Page shown:', page);
+        } else {
+            console.error('[App] Page not found: page-' + page);
+        }
 
         // Load page data and restore auto-refresh
         switch (page) {
@@ -528,6 +548,9 @@ const App = {
                 break;
             case 'files':
                 this.initFileManager();
+                break;
+            case 'plugins':
+                console.log('[App] Loading plugins page');
                 break;
         }
     },

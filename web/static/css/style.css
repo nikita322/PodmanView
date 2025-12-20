@@ -3032,3 +3032,70 @@ body.is-admin .page-actions .admin-only {
         padding: 4px 8px;
     }
 }
+
+/* Plugin restart warning */
+.plugin-restart-warning {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    background: var(--warning);
+    color: #0d1117;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    max-width: 300px;
+    animation: slideIn 0.3s ease-out;
+}
+
+.plugin-restart-warning strong {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.plugin-restart-warning p {
+    margin: 0;
+    font-size: 14px;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Back button for plugin pages */
+.btn-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-secondary);
+}
+
+.btn-back:hover {
+    background: var(--card-bg-hover);
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateX(-2px);
+}
+
+.btn-back:active {
+    transform: translateX(-2px) scale(0.95);
+}
+
+.btn-back svg {
+    flex-shrink: 0;
+}

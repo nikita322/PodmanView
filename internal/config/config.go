@@ -15,13 +15,11 @@ import (
 
 // Environment variable names
 const (
-	EnvAddr             = "PODMANVIEW_ADDR"
-	EnvJWTSecret        = "PODMANVIEW_JWT_SECRET"
-	EnvJWTExpiration    = "PODMANVIEW_JWT_EXPIRATION"
-	EnvNoAuth           = "PODMANVIEW_NO_AUTH"
-	EnvSocket           = "PODMANVIEW_SOCKET"
-	EnvPluginsEnabled   = "PODMANVIEW_PLUGINS_ENABLED"
-	PluginSettingPrefix = "PLUGIN_"
+	EnvAddr          = "PODMANVIEW_ADDR"
+	EnvJWTSecret     = "PODMANVIEW_JWT_SECRET"
+	EnvJWTExpiration = "PODMANVIEW_JWT_EXPIRATION"
+	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
+	EnvSocket        = "PODMANVIEW_SOCKET"
 )
 
 // Default values
@@ -49,10 +47,6 @@ type Config struct {
 
 	// Podman settings
 	socketPath string
-
-	// Plugin settings
-	enabledPlugins []string
-	pluginSettings map[string]map[string]string
 }
 
 // Load loads configuration from .env file or creates it with defaults.
@@ -106,8 +100,6 @@ func (c *Config) setDefaults() {
 	c.jwtExpiration = DefaultJWTExpiration
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
-	c.enabledPlugins = make([]string, 0)
-	c.pluginSettings = make(map[string]map[string]string)
 }
 
 // loadFromFile reads configuration from .env file.
@@ -149,38 +141,6 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvSocket]; ok {
 		c.socketPath = v
-	}
-
-	// Parse enabled plugins
-	if v, ok := values[EnvPluginsEnabled]; ok && v != "" {
-		c.enabledPlugins = parseCommaSeparated(v)
-	}
-
-	// Parse plugin-specific settings
-	c.pluginSettings = make(map[string]map[string]string)
-	prefixLen := len(PluginSettingPrefix)
-
-	for key, value := range values {
-		if !strings.HasPrefix(key, PluginSettingPrefix) {
-			continue
-		}
-
-		// PLUGIN_FANS_PWM_PATH -> "FANS_PWM_PATH"
-		remainder := key[prefixLen:]
-
-		// Find first underscore to split plugin name from setting key
-		underscoreIdx := strings.IndexByte(remainder, '_')
-		if underscoreIdx == -1 || underscoreIdx == 0 || underscoreIdx == len(remainder)-1 {
-			continue // Invalid format
-		}
-
-		pluginName := strings.ToLower(remainder[:underscoreIdx])
-		settingKey := remainder[underscoreIdx+1:]
-
-		if c.pluginSettings[pluginName] == nil {
-			c.pluginSettings[pluginName] = make(map[string]string)
-		}
-		c.pluginSettings[pluginName][settingKey] = value
 	}
 }
 
@@ -248,29 +208,13 @@ func (c *Config) Save() error {
 
 // toMap converts config to key-value map for saving.
 func (c *Config) toMap() map[string]string {
-	result := map[string]string{
+	return map[string]string{
 		EnvAddr:          c.addr,
 		EnvJWTSecret:     c.jwtSecret,
 		EnvJWTExpiration: strconv.Itoa(int(c.jwtExpiration.Seconds())),
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
 	}
-
-	// Add enabled plugins
-	if len(c.enabledPlugins) > 0 {
-		result[EnvPluginsEnabled] = strings.Join(c.enabledPlugins, ",")
-	}
-
-	// Add plugin-specific settings
-	for pluginName, settings := range c.pluginSettings {
-		for key, value := range settings {
-			// Convert plugin name to uppercase for env var
-			envKey := PluginSettingPrefix + strings.ToUpper(pluginName) + "_" + key
-			result[envKey] = value
-		}
-	}
-
-	return result
 }
 
 // Getters (thread-safe)
@@ -315,49 +259,6 @@ func (c *Config) FilePath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.filePath
-}
-
-// EnabledPlugins returns the list of enabled plugins.
-func (c *Config) EnabledPlugins() []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// Return a copy to prevent external modification
-	result := make([]string, len(c.enabledPlugins))
-	copy(result, c.enabledPlugins)
-	return result
-}
-
-// PluginSettings returns all settings for a specific plugin.
-func (c *Config) PluginSettings(pluginName string) map[string]string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	settings, ok := c.pluginSettings[pluginName]
-	if !ok {
-		return make(map[string]string)
-	}
-
-	// Return a copy
-	result := make(map[string]string)
-	for k, v := range settings {
-		result[k] = v
-	}
-	return result
-}
-
-// GetPluginSetting returns a specific setting for a plugin.
-func (c *Config) GetPluginSetting(pluginName, key string) (string, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	settings, ok := c.pluginSettings[pluginName]
-	if !ok {
-		return "", false
-	}
-
-	value, ok := settings[key]
-	return value, ok
 }
 
 // Setters (thread-safe, auto-save)
@@ -446,26 +347,6 @@ func parseBool(s string) bool {
 	default:
 		return false
 	}
-}
-
-// parseCommaSeparated parses a comma-separated string into a slice.
-// Trims whitespace from each item and filters out empty strings.
-func parseCommaSeparated(s string) []string {
-	if s == "" {
-		return []string{}
-	}
-
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-
-	return result
 }
 
 // Reload reloads configuration from file.
