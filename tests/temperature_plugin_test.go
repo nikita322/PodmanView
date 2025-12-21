@@ -13,17 +13,17 @@ func TestGetFriendlyName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		// Cluster thermal patterns
-		{"cluster0_thermal", "CPU Cluster 0"},
-		{"cluster1_thermal", "CPU Cluster 1"},
-		{"cluster2_thermal", "CPU Cluster 2"},
-		{"cluster10_thermal", "CPU Cluster 10"},
-		{"cluster99_thermal", "CPU Cluster 99"},
+		// Cluster thermal patterns (numbering starts from 1)
+		{"cluster0_thermal", "CPU Cluster 1"},
+		{"cluster1_thermal", "CPU Cluster 2"},
+		{"cluster2_thermal", "CPU Cluster 3"},
+		{"cluster10_thermal", "CPU Cluster 11"},
+		{"cluster99_thermal", "CPU Cluster 100"},
 
-		// Core patterns
-		{"core0", "CPU Core 0"},
-		{"core1", "CPU Core 1"},
-		{"core15", "CPU Core 15"},
+		// Core patterns (numbering starts from 1)
+		{"core0", "CPU Core 1"},
+		{"core1", "CPU Core 2"},
+		{"core15", "CPU Core 16"},
 
 		// Unknown patterns - should return as-is
 		{"k10temp", "k10temp"},
@@ -37,6 +37,46 @@ func TestGetFriendlyName(t *testing.T) {
 			result := temperature.GetFriendlyName(tt.input)
 			if result != tt.expected {
 				t.Errorf("GetFriendlyName(%q) = %q; want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetFriendlyStorageName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// NVMe patterns (numbering starts from 1 for user-friendliness)
+		{"nvme0n1", "NVMe SSD 1"},
+		{"nvme1n1", "NVMe SSD 2"},
+		{"nvme2n1", "NVMe SSD 3"},
+		{"nvme10n1", "NVMe SSD 11"},
+
+		// SATA patterns
+		{"sda", "SATA Drive A"},
+		{"sdb", "SATA Drive B"},
+		{"sdc", "SATA Drive C"},
+		{"sdz", "SATA Drive Z"},
+
+		// IDE patterns
+		{"hda", "IDE Drive A"},
+		{"hdb", "IDE Drive B"},
+
+		// SD Card patterns
+		{"mmcblk0", "SD Card 1"},
+		{"mmcblk1", "SD Card 2"},
+
+		// Unknown patterns - should return as-is
+		{"unknown_device", "unknown_device"},
+		{"vda", "vda"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := temperature.GetFriendlyStorageName(tt.input)
+			if result != tt.expected {
+				t.Errorf("GetFriendlyStorageName(%q) = %q; want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

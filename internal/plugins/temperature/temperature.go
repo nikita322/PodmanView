@@ -323,30 +323,78 @@ func (p *TemperaturePlugin) GetLastUpdateTime() time.Time {
 }
 
 // GetFriendlyName converts system sensor names to human-readable names
-// Supports dynamic patterns like clusterN_thermal -> CPU Cluster N
+// Supports dynamic patterns like clusterN_thermal -> CPU Cluster N+1 (user-friendly numbering)
 func GetFriendlyName(deviceName string) string {
-	// Pattern: clusterN_thermal -> CPU Cluster N
+	// Pattern: clusterN_thermal -> CPU Cluster N+1 (numbering starts from 1)
 	if strings.HasPrefix(deviceName, "cluster") && strings.HasSuffix(deviceName, "_thermal") {
 		// Extract cluster number
 		clusterNum := strings.TrimPrefix(deviceName, "cluster")
 		clusterNum = strings.TrimSuffix(clusterNum, "_thermal")
-		// Verify it's a number
+		// Verify it's a number and convert
 		if len(clusterNum) > 0 && isDigit(clusterNum[0]) {
-			return "CPU Cluster " + clusterNum
+			if num, err := strconv.Atoi(clusterNum); err == nil {
+				return "CPU Cluster " + strconv.Itoa(num+1)
+			}
 		}
 	}
 
-	// Pattern: coreN -> CPU Core N (where N is a number)
+	// Pattern: coreN -> CPU Core N+1 (numbering starts from 1)
 	if strings.HasPrefix(deviceName, "core") {
 		coreNum := strings.TrimPrefix(deviceName, "core")
 		// Check if the next character is a digit
 		if len(coreNum) > 0 && isDigit(coreNum[0]) {
-			return "CPU Core " + coreNum
+			if num, err := strconv.Atoi(coreNum); err == nil {
+				return "CPU Core " + strconv.Itoa(num+1)
+			}
 		}
 	}
 
 	// Add more patterns as needed
 	// For example: nvme, ssd, etc.
+
+	// Return original name if no pattern matches
+	return deviceName
+}
+
+// GetFriendlyStorageName converts storage device names to human-readable names
+// Supports patterns like nvme0n1 -> NVMe SSD 1, sda -> SATA Drive A
+func GetFriendlyStorageName(deviceName string) string {
+	// Pattern: nvmeXnY -> NVMe SSD X+1 (user-friendly numbering starting from 1)
+	if strings.HasPrefix(deviceName, "nvme") {
+		// Extract number after "nvme"
+		rest := strings.TrimPrefix(deviceName, "nvme")
+		// Find the digit part before 'n'
+		if len(rest) > 0 {
+			// nvme0n1 -> rest = "0n1"
+			nPos := strings.Index(rest, "n")
+			if nPos > 0 {
+				numStr := rest[:nPos]
+				if num, err := strconv.Atoi(numStr); err == nil {
+					return "NVMe SSD " + strconv.Itoa(num+1)
+				}
+			}
+		}
+	}
+
+	// Pattern: sdX -> SATA Drive X (uppercase)
+	if strings.HasPrefix(deviceName, "sd") && len(deviceName) >= 3 {
+		letter := strings.ToUpper(string(deviceName[2]))
+		return "SATA Drive " + letter
+	}
+
+	// Pattern: hdX -> IDE Drive X (uppercase)
+	if strings.HasPrefix(deviceName, "hd") && len(deviceName) >= 3 {
+		letter := strings.ToUpper(string(deviceName[2]))
+		return "IDE Drive " + letter
+	}
+
+	// Pattern: mmcblkX -> SD Card X+1
+	if strings.HasPrefix(deviceName, "mmcblk") {
+		numStr := strings.TrimPrefix(deviceName, "mmcblk")
+		if num, err := strconv.Atoi(numStr); err == nil {
+			return "SD Card " + strconv.Itoa(num+1)
+		}
+	}
 
 	// Return original name if no pattern matches
 	return deviceName
@@ -457,7 +505,7 @@ func getNVMeTemperaturesGrouped() []StorageTemp {
 
 		outputStr := string(output)
 		deviceTemps := StorageTemp{
-			Device:  deviceName,
+			Device:  GetFriendlyStorageName(deviceName),
 			Sensors: []Temperature{},
 		}
 
