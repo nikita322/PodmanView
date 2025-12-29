@@ -1,5 +1,11 @@
 // PodmanView - Podman Web Management
 
+// User roles (enum-like constants)
+const UserRole = Object.freeze({
+    ADMIN: 'admin',
+    READONLY: 'readonly'
+});
+
 const App = {
     user: null,
     currentPage: 'dashboard',
@@ -447,8 +453,6 @@ const App = {
         // Stop events check
         this.stopEventsCheck();
         this.eventsLastId = 0;
-        // Stop update check
-        this.stopUpdateCheck();
     },
 
     // Show main app
@@ -469,7 +473,7 @@ const App = {
         }
 
         // Set admin class for showing admin-only elements
-        if (this.user.role === 'admin') {
+        if (this.isAdmin()) {
             document.body.classList.add('is-admin');
         } else {
             document.body.classList.remove('is-admin');
@@ -480,11 +484,14 @@ const App = {
 
         // Start checking for new events
         this.startEventsCheck();
+    },
 
-        // Start checking for updates (only for admin)
-        if (this.user.role === 'admin') {
-            this.startUpdateCheck();
-        }
+    /**
+     * Check if current user has admin role
+     * @returns {boolean} true if user is admin, false otherwise
+     */
+    isAdmin() {
+        return this.user && this.user.role === UserRole.ADMIN;
     },
 
     // Navigate to page
@@ -1341,7 +1348,7 @@ const App = {
 
     // Get container action buttons
     getContainerActions(container) {
-        const isAdmin = this.user && this.user.role === 'admin';
+        const isAdmin = this.isAdmin();
         const id = container.Id || container.ID;
 
         let menuItems = `<button class="dropdown-item" onclick="App.viewLogs('${id}')">Logs</button>`;
@@ -1625,7 +1632,7 @@ const App = {
             <td>${this.formatDate(img.Created)}</td>
             <td>${usageStatus}</td>
             <td class="actions">
-                ${this.user && this.user.role === 'admin'
+                ${this.isAdmin()
                     ? `<div class="dropdown">
                         <button class="btn btn-small" onclick="App.toggleDropdown(this)">...</button>
                         <div class="dropdown-menu">
@@ -2000,7 +2007,6 @@ const App = {
 
     // Update system
     updateInfo: null,
-    updateCheckInterval: null,
     updatePollingInterval: null,
 
     // Check for updates
@@ -2186,28 +2192,6 @@ const App = {
     setUpdateProgress(percent, message) {
         document.getElementById('update-progress-bar').style.width = percent + '%';
         document.getElementById('update-progress-text').textContent = message;
-    },
-
-    // Start periodic update check (every 30 minutes)
-    startUpdateCheck() {
-        // Initial check after 5 seconds
-        setTimeout(() => this.checkForUpdates(), 5000);
-
-        // Then check every 30 minutes
-        this.updateCheckInterval = setInterval(() => {
-            this.checkForUpdates();
-        }, 30 * 60 * 1000);
-    },
-
-    stopUpdateCheck() {
-        if (this.updateCheckInterval) {
-            clearInterval(this.updateCheckInterval);
-            this.updateCheckInterval = null;
-        }
-        if (this.updatePollingInterval) {
-            clearInterval(this.updatePollingInterval);
-            this.updatePollingInterval = null;
-        }
     },
 
     // ========== File Manager ==========
