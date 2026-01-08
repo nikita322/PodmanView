@@ -1,0 +1,355 @@
+<!-- LED Control Plugin Interface -->
+<section id="page-plugin-led" class="content-page hidden" data-plugin-version="1.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="led-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">LED Control</h1>
+        </div>
+        <div class="page-actions">
+            <button id="led-refresh-btn" class="btn">Refresh</button>
+        </div>
+    </div>
+
+    <!-- Settings Section -->
+    <div class="info-section">
+        <h2>Settings</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Auto-disable on Startup:</span>
+                <label class="toggle-label">
+                    <input type="checkbox" id="auto-disable-toggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text" id="auto-disable-status">Disabled</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- LED Control Section -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>LED Control</h2>
+
+        <!-- Warning message when no LEDs found -->
+        <div id="no-leds-warning" style="display: none; padding: 15px; background: var(--warning-bg, #fff3cd); border: 1px solid var(--warning-border, #ffc107); border-radius: 5px; margin-bottom: 15px;">
+            <p style="margin: 0; color: var(--warning-text, #856404);">
+                <strong>⚠️ No LEDs detected</strong><br>
+                This plugin requires a Linux system with accessible LEDs in <code>/sys/class/leds</code>.
+                Make sure the application has proper permissions to access LED devices.
+            </p>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Current Status:</span>
+                <span class="info-value" id="led-status">Unknown</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Total LEDs:</span>
+                <span class="info-value" id="total-leds">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Enabled LEDs:</span>
+                <span class="info-value" id="enabled-leds">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Disabled LEDs:</span>
+                <span class="info-value" id="disabled-leds">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Last Update:</span>
+                <span class="info-value" id="last-update">-</span>
+            </div>
+        </div>
+        <div style="margin-top: 20px; text-align: center;">
+            <button id="toggle-leds-btn" class="btn btn-primary" style="min-width: 200px;">
+                Toggle LEDs
+            </button>
+        </div>
+    </div>
+
+    <!-- Info Section -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Information</h2>
+        <p style="margin: 0; color: var(--text-secondary);">
+            This plugin allows you to control all system LEDs. Use the toggle button to enable or disable all LEDs at once.
+            The auto-disable feature will automatically turn off all LEDs when the application starts.
+        </p>
+    </div>
+</section>
+
+<script>
+// LED Plugin Client-side Logic
+(function() {
+    'use strict';
+
+    const LEDPlugin = {
+        initialized: false,
+        currentStatus: null,
+
+        init: function() {
+            if (this.initialized) {
+                console.log('[LEDPlugin] Already initialized, skipping');
+                return;
+            }
+            console.log('[LEDPlugin v1.0] Initializing...');
+            this.initialized = true;
+            this.bindEvents();
+            this.loadStatus();
+        },
+
+        cleanup: function() {
+            console.log('[LEDPlugin] Cleaning up...');
+            this.initialized = false;
+        },
+
+        bindEvents: function() {
+            const backBtn = document.getElementById('led-back-btn');
+            const refreshBtn = document.getElementById('led-refresh-btn');
+            const toggleBtn = document.getElementById('toggle-leds-btn');
+            const autoDisableToggle = document.getElementById('auto-disable-toggle');
+
+            if (backBtn) {
+                backBtn.addEventListener('click', () => this.goBack());
+            }
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => this.loadStatus());
+            }
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', () => this.toggleLEDs());
+            }
+            if (autoDisableToggle) {
+                autoDisableToggle.addEventListener('change', (e) => this.updateAutoDisable(e.target.checked));
+            }
+        },
+
+        goBack: function() {
+            console.log('[LEDPlugin] goBack called');
+            if (typeof App !== 'undefined' && App.navigateTo) {
+                App.navigateTo('plugins');
+            } else {
+                console.error('[LEDPlugin] App or App.navigateTo not available');
+            }
+        },
+
+        loadStatus: async function() {
+            try {
+                const response = await fetch('/api/plugins/led/status', {
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to load LED status');
+
+                const data = await response.json();
+                this.currentStatus = data.state;
+
+                // Update UI
+                this.updateUI(data.state, data.settings);
+
+            } catch (error) {
+                console.error('[LEDPlugin] Error loading status:', error);
+                this.showError('Failed to load LED status');
+            }
+        },
+
+        updateUI: function(state, settings) {
+            const noLedsWarning = document.getElementById('no-leds-warning');
+            const toggleBtn = document.getElementById('toggle-leds-btn');
+
+            // Check if no LEDs found
+            const noLeds = !state.totalLeds || state.totalLeds === 0;
+
+            // Show/hide warning
+            if (noLedsWarning) {
+                noLedsWarning.style.display = noLeds ? 'block' : 'none';
+            }
+
+            // Disable toggle button if no LEDs
+            if (toggleBtn) {
+                toggleBtn.disabled = noLeds;
+                if (noLeds) {
+                    toggleBtn.textContent = 'No LEDs Available';
+                    toggleBtn.className = 'btn btn-secondary';
+                }
+            }
+
+            // Update status
+            const statusEl = document.getElementById('led-status');
+            if (noLeds) {
+                statusEl.textContent = 'No LEDs';
+                statusEl.style.color = 'var(--text-secondary)';
+            } else if (state.status === 'enabled') {
+                statusEl.textContent = 'Enabled';
+                statusEl.style.color = 'var(--success-color, #4CAF50)';
+            } else {
+                statusEl.textContent = 'Disabled';
+                statusEl.style.color = 'var(--text-secondary)';
+            }
+
+            // Update counts
+            document.getElementById('total-leds').textContent = state.totalLeds || 0;
+            document.getElementById('enabled-leds').textContent = state.enabledCount || 0;
+            document.getElementById('disabled-leds').textContent = state.disabledCount || 0;
+
+            // Update last update time
+            if (state.lastUpdate) {
+                const date = new Date(state.lastUpdate);
+                document.getElementById('last-update').textContent = date.toLocaleTimeString();
+            }
+
+            // Update toggle button text (only if LEDs are available)
+            if (!noLeds && toggleBtn) {
+                if (state.status === 'enabled') {
+                    toggleBtn.textContent = 'Disable All LEDs';
+                    toggleBtn.className = 'btn btn-danger';
+                } else {
+                    toggleBtn.textContent = 'Enable All LEDs';
+                    toggleBtn.className = 'btn btn-primary';
+                }
+            }
+
+            // Update auto-disable toggle
+            const autoDisableToggle = document.getElementById('auto-disable-toggle');
+            const autoDisableStatus = document.getElementById('auto-disable-status');
+            if (settings && settings.autoDisableOnStartup !== undefined) {
+                autoDisableToggle.checked = settings.autoDisableOnStartup;
+                autoDisableStatus.textContent = settings.autoDisableOnStartup ? 'Enabled' : 'Disabled';
+            }
+        },
+
+        toggleLEDs: async function() {
+            // Check if LEDs are available
+            if (!this.currentStatus || !this.currentStatus.totalLeds || this.currentStatus.totalLeds === 0) {
+                this.showError('No LEDs available to toggle');
+                return;
+            }
+
+            const toggleBtn = document.getElementById('toggle-leds-btn');
+            const originalText = toggleBtn.textContent;
+            const originalClass = toggleBtn.className;
+
+            toggleBtn.disabled = true;
+            toggleBtn.textContent = 'Processing...';
+
+            try {
+                // Determine if we should enable or disable
+                const shouldEnable = this.currentStatus.status !== 'enabled';
+
+                const response = await fetch('/api/plugins/led/toggle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    },
+                    body: JSON.stringify({ enable: shouldEnable })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to toggle LEDs');
+                }
+
+                this.showSuccess(shouldEnable ? 'LEDs enabled successfully' : 'LEDs disabled successfully');
+
+                // Update current status optimistically
+                if (this.currentStatus) {
+                    this.currentStatus.status = shouldEnable ? 'enabled' : 'disabled';
+                }
+
+                // Reload status to get actual state
+                await this.loadStatus();
+
+            } catch (error) {
+                console.error('[LEDPlugin] Error toggling LEDs:', error);
+                this.showError(error.message || 'Failed to toggle LEDs');
+                toggleBtn.textContent = originalText;
+                toggleBtn.className = originalClass;
+            } finally {
+                // Re-check if LEDs are available before enabling button
+                const noLeds = !this.currentStatus || !this.currentStatus.totalLeds || this.currentStatus.totalLeds === 0;
+                toggleBtn.disabled = noLeds;
+            }
+        },
+
+        updateAutoDisable: async function(enabled) {
+            const autoDisableToggle = document.getElementById('auto-disable-toggle');
+            const originalState = !enabled;
+
+            autoDisableToggle.disabled = true;
+
+            try {
+                const response = await fetch('/api/plugins/led/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    },
+                    body: JSON.stringify({ autoDisableOnStartup: enabled })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to update settings');
+                }
+
+                const autoDisableStatus = document.getElementById('auto-disable-status');
+                autoDisableStatus.textContent = enabled ? 'Enabled' : 'Disabled';
+
+                this.showSuccess('Settings updated successfully');
+
+            } catch (error) {
+                console.error('[LEDPlugin] Error updating settings:', error);
+                this.showError(error.message || 'Failed to update settings');
+
+                // Revert toggle state
+                autoDisableToggle.checked = originalState;
+            } finally {
+                autoDisableToggle.disabled = false;
+            }
+        },
+
+        showSuccess: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'success');
+            } else {
+                console.log('[LEDPlugin] Success:', message);
+            }
+        },
+
+        showError: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'error');
+            } else {
+                console.error('[LEDPlugin] Error:', message);
+            }
+        }
+    };
+
+    // Initialize when page is shown
+    const ledPage = document.getElementById('page-plugin-led');
+    if (ledPage) {
+        // Listen for custom event when page is shown
+        ledPage.addEventListener('plugin-page-shown', function() {
+            console.log('[LEDPlugin] Page shown event received');
+            LEDPlugin.init();
+        });
+
+        // Listen for page hide to cleanup
+        ledPage.addEventListener('plugin-page-hidden', function() {
+            console.log('[LEDPlugin] Page hidden event received');
+            LEDPlugin.cleanup();
+        });
+
+        // Also init if already visible (fallback)
+        if (!ledPage.classList.contains('hidden')) {
+            console.log('[LEDPlugin] Page already visible, initializing...');
+            LEDPlugin.init();
+        }
+    }
+})();
+</script>

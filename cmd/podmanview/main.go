@@ -15,10 +15,12 @@ import (
 	"podmanview/internal/api"
 	"podmanview/internal/config"
 	"podmanview/internal/events"
+	"podmanview/internal/logger"
 	"podmanview/internal/mqtt"
 	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/demo"
+	"podmanview/internal/plugins/led"
 	"podmanview/internal/plugins/temperature"
 	"podmanview/internal/storage"
 )
@@ -36,17 +38,29 @@ var Version = "dev"
 func main() {
 	ctx := context.Background()
 
-	// Generate static files version (timestamp for cache busting)
-	staticVersion := fmt.Sprintf("%d", time.Now().Unix())
-	log.Printf("Static files version: %s", staticVersion)
-
-	// Load configuration from .env file
+	// Load configuration from .env file first (to get log directory)
 	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	log.Printf("Configuration loaded: %s", cfg)
+	// Initialize logger with configured directory
+	appLogger, err := logger.New(cfg.LogDir())
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer appLogger.Close()
+
+	// Create standard logger for compatibility with plugins and other components
+	// It will write to our custom logger's app.log
+	stdLogger := log.New(appLogger.Writer(), "", log.LstdFlags)
+
+	// Generate static files version (timestamp for cache busting)
+	staticVersion := fmt.Sprintf("%d", time.Now().Unix())
+	appLogger.Printf("Static files version: %s", staticVersion)
+
+	appLogger.Printf("Configuration loaded: %s", cfg)
+	appLogger.Printf("Logs directory: %s", cfg.LogDir())
 
 	// Create Podman client
 	var client *podman.Client
@@ -59,12 +73,12 @@ func main() {
 	}
 
 	if err != nil {
-		log.Fatalf("Failed to connect to Podman: %v", err)
+		appLogger.Fatalf("Failed to connect to Podman: %v", err)
 	}
 
 	// Test connection
 	if err := client.Ping(ctx); err != nil {
-		log.Fatalf("Failed to ping Podman: %v", err)
+		appLogger.Fatalf("Failed to ping Podman: %v", err)
 	}
 
 	// Create event store
@@ -74,7 +88,7 @@ func main() {
 	// This stores: plugin configs, plugin data, command history, etc.
 	pluginStorage, err := storage.NewBoltStorage(pluginsDBFile)
 	if err != nil {
-		log.Fatalf("Failed to create application storage: %v", err)
+		appLogger.Fatalf("Failed to create application storage: %v", err)
 	}
 	defer pluginStorage.Close()
 
@@ -83,12 +97,12 @@ func main() {
 	_, err = pluginStorage.GetPluginConfig("demo")
 	if err == storage.ErrPluginNotFound {
 		// Set default configuration for demo plugin
-		log.Printf("Initializing default configuration for demo plugin")
+		appLogger.Printf("Initializing default configuration for demo plugin")
 		if err := pluginStorage.SetPluginConfig("demo", &storage.PluginConfig{
 			Enabled: true,
 			Name:    "Demo Plugin",
 		}); err != nil {
-			log.Printf("Warning: Failed to set default demo plugin config: %v", err)
+			appLogger.Printf("Warning: Failed to set default demo plugin config: %v", err)
 		}
 	}
 
@@ -96,12 +110,25 @@ func main() {
 	_, err = pluginStorage.GetPluginConfig("temperature")
 	if err == storage.ErrPluginNotFound {
 		// Set default configuration for temperature plugin
-		log.Printf("Initializing default configuration for temperature plugin")
+		appLogger.Printf("Initializing default configuration for temperature plugin")
 		if err := pluginStorage.SetPluginConfig("temperature", &storage.PluginConfig{
 			Enabled: true,
 			Name:    "Temperature Monitoring",
 		}); err != nil {
-			log.Printf("Warning: Failed to set default temperature plugin config: %v", err)
+			appLogger.Printf("Warning: Failed to set default temperature plugin config: %v", err)
+		}
+	}
+
+	// Check if led plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("led")
+	if err == storage.ErrPluginNotFound {
+		// Set default configuration for led plugin
+		appLogger.Printf("Initializing default configuration for LED plugin")
+		if err := pluginStorage.SetPluginConfig("led", &storage.PluginConfig{
+			Enabled: true,
+			Name:    "LED Control",
+		}); err != nil {
+			appLogger.Printf("Warning: Failed to set default led plugin config: %v", err)
 		}
 	}
 
@@ -111,7 +138,7 @@ func main() {
 	var mqttDiscovery *mqtt.DiscoveryManager
 
 	if cfg.MQTTBroker() != "" {
-		log.Printf("Initializing MQTT services...")
+		appLogger.Printf("Initializing MQTT services...")
 
 		mqttCfg := mqtt.Config{
 			Broker:   cfg.MQTTBroker(),
@@ -122,14 +149,14 @@ func main() {
 			UseTLS:   cfg.MQTTUseTLS(),
 		}
 
-		mqttClient, err = mqtt.New(mqttCfg, log.Default())
+		mqttClient, err = mqtt.New(mqttCfg, stdLogger)
 		if err != nil {
-			log.Printf("Warning: Failed to create MQTT client: %v", err)
-			log.Printf("MQTT functionality will be disabled")
+			appLogger.Printf("Warning: Failed to create MQTT client: %v", err)
+			appLogger.Printf("MQTT functionality will be disabled")
 		} else {
-			mqttPublisher = mqtt.NewPublisher(mqttClient, log.Default())
-			mqttDiscovery = mqtt.NewDiscoveryManager(mqttClient, log.Default(), pluginStorage, "global")
-			log.Printf("MQTT services initialized successfully")
+			mqttPublisher = mqtt.NewPublisher(mqttClient, stdLogger)
+			mqttDiscovery = mqtt.NewDiscoveryManager(mqttClient, stdLogger, pluginStorage, "global")
+			appLogger.Printf("MQTT services initialized successfully")
 		}
 	}
 
@@ -139,32 +166,36 @@ func main() {
 	// Register all available plugins
 	// Add your plugins here
 	if err := pluginRegistry.Register(demo.New()); err != nil {
-		log.Fatalf("Failed to register demo plugin: %v", err)
+		appLogger.Fatalf("Failed to register demo plugin: %v", err)
 	}
 
 	if err := pluginRegistry.Register(temperature.New()); err != nil {
-		log.Fatalf("Failed to register temperature plugin: %v", err)
+		appLogger.Fatalf("Failed to register temperature plugin: %v", err)
 	}
 
-	log.Printf("Registered %d plugins", pluginRegistry.Count())
+	if err := pluginRegistry.Register(led.New()); err != nil {
+		appLogger.Fatalf("Failed to register led plugin: %v", err)
+	}
+
+	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())
 
 	// Get enabled plugin names from storage
 	enabledPluginNames, err := pluginStorage.ListEnabledPlugins()
 	if err != nil {
-		log.Fatalf("Failed to list enabled plugins: %v", err)
+		appLogger.Fatalf("Failed to list enabled plugins: %v", err)
 	}
-	log.Printf("Enabled plugins from storage: %v", enabledPluginNames)
+	appLogger.Printf("Enabled plugins from storage: %v", enabledPluginNames)
 
 	// Get enabled plugins by config (before Init, so we can't use IsEnabled())
 	enabledPlugins := pluginRegistry.EnabledByConfig(enabledPluginNames)
-	log.Printf("Found %d/%d enabled plugins", len(enabledPlugins), pluginRegistry.Count())
+	appLogger.Printf("Found %d/%d enabled plugins", len(enabledPlugins), pluginRegistry.Count())
 
 	// Initialize enabled plugins with timeout
 	pluginDeps := &plugins.PluginDependencies{
 		PodmanClient:  client,
 		Config:        cfg,
 		EventStore:    eventStore,
-		Logger:        log.Default(),
+		Logger:        stdLogger,
 		Storage:       pluginStorage,
 		MQTTClient:    mqttClient,
 		MQTTPublisher: mqttPublisher,
@@ -179,7 +210,7 @@ func main() {
 		initCtx, cancel := context.WithTimeout(ctx, pluginInitTimeout)
 		if err := p.Init(initCtx, pluginDeps); err != nil {
 			cancel()
-			log.Fatalf("Failed to initialize plugin %s: %v", p.Name(), err)
+			appLogger.Fatalf("Failed to initialize plugin %s: %v", p.Name(), err)
 		}
 		cancel()
 	}
@@ -189,7 +220,7 @@ func main() {
 		startCtx, cancel := context.WithTimeout(ctx, pluginStartTimeout)
 		if err := p.Start(startCtx); err != nil {
 			cancel()
-			log.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
+			appLogger.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
 		}
 		cancel()
 	}
@@ -200,9 +231,9 @@ func main() {
 		// Check if plugin implements BackgroundTaskRunner interface
 		if runner, ok := p.(plugins.BackgroundTaskRunner); ok {
 			if err := runner.StartBackgroundTasks(ctx); err != nil {
-				log.Fatalf("Failed to start background tasks for plugin %s: %v", p.Name(), err)
+				appLogger.Fatalf("Failed to start background tasks for plugin %s: %v", p.Name(), err)
 			}
-			log.Printf("Started background tasks for plugin: %s", p.Name())
+			appLogger.Printf("Started background tasks for plugin: %s", p.Name())
 		}
 	}
 
@@ -241,16 +272,16 @@ func main() {
 	// Start HTTP server in goroutine
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			appLogger.Fatalf("Server failed: %v", err)
 		}
 	}()
 
-	log.Println("Server started. Press Ctrl+C to stop.")
+	appLogger.Println("Server started. Press Ctrl+C to stop.")
 
 	// Wait for interrupt signal
 	<-stop
 
-	log.Println("Shutting down gracefully...")
+	appLogger.Println("Shutting down gracefully...")
 
 	// Create shutdown context with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -258,20 +289,20 @@ func main() {
 
 	// Shutdown HTTP server
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		appLogger.Errorf("HTTP server shutdown error: %v", err)
 	}
 
 	// Stop all enabled plugins in reverse order
 	for i := len(enabledPlugins) - 1; i >= 0; i-- {
 		p := enabledPlugins[i]
 		if err := p.Stop(shutdownCtx); err != nil {
-			log.Printf("Error stopping plugin %s: %v", p.Name(), err)
+			appLogger.Errorf("Error stopping plugin %s: %v", p.Name(), err)
 		} else {
-			log.Printf("Stopped plugin: %s", p.Name())
+			appLogger.Printf("Stopped plugin: %s", p.Name())
 		}
 	}
 
-	log.Println("Server stopped")
+	appLogger.Println("Server stopped")
 }
 
 // getLocalIPs returns all local IP addresses

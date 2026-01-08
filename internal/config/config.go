@@ -20,6 +20,7 @@ const (
 	EnvJWTExpiration = "PODMANVIEW_JWT_EXPIRATION"
 	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
 	EnvSocket        = "PODMANVIEW_SOCKET"
+	EnvLogDir        = "PODMANVIEW_LOG_DIR"
 	// MQTT settings
 	EnvMQTTBroker   = "PODMANVIEW_MQTT_BROKER"
 	EnvMQTTClientID = "PODMANVIEW_MQTT_CLIENT_ID"
@@ -35,6 +36,7 @@ const (
 	DefaultJWTExpiration = 24 * time.Hour
 	DefaultNoAuth        = false
 	DefaultSocket        = "" // auto-detect
+	DefaultLogDir        = "./logs"
 	// MQTT defaults
 	DefaultMQTTBroker   = ""
 	DefaultMQTTClientID = ""
@@ -61,6 +63,9 @@ type Config struct {
 
 	// Podman settings
 	socketPath string
+
+	// Logging settings
+	logDir string
 
 	// MQTT settings
 	mqttBroker   string
@@ -122,6 +127,7 @@ func (c *Config) setDefaults() {
 	c.jwtExpiration = DefaultJWTExpiration
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
+	c.logDir = DefaultLogDir
 	// MQTT defaults
 	c.mqttBroker = DefaultMQTTBroker
 	c.mqttClientID = DefaultMQTTClientID
@@ -170,6 +176,10 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvSocket]; ok {
 		c.socketPath = v
+	}
+
+	if v, ok := values[EnvLogDir]; ok && v != "" {
+		c.logDir = v
 	}
 
 	// MQTT settings
@@ -263,6 +273,7 @@ func (c *Config) toMap() map[string]string {
 		EnvJWTExpiration: strconv.Itoa(int(c.jwtExpiration.Seconds())),
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
+		EnvLogDir:        c.logDir,
 		// MQTT settings
 		EnvMQTTBroker:   c.mqttBroker,
 		EnvMQTTClientID: c.mqttClientID,
@@ -308,6 +319,13 @@ func (c *Config) SocketPath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.socketPath
+}
+
+// LogDir returns the log directory path.
+func (c *Config) LogDir() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.logDir
 }
 
 // FilePath returns the path to the .env file.
@@ -423,6 +441,16 @@ func (c *Config) SetSocketPath(path string) error {
 	if err := c.validate(); err != nil {
 		return err
 	}
+	return c.Save()
+}
+
+// SetLogDir sets the log directory path and saves to file.
+func (c *Config) SetLogDir(dir string) error {
+	c.mu.Lock()
+	c.logDir = dir
+	c.dirty = true
+	c.mu.Unlock()
+
 	return c.Save()
 }
 
