@@ -31,6 +31,15 @@ const App = {
     currentLine: '',
     savedLine: '',
 
+    // Terminal reconnection state
+    hostTerminalReconnecting: false,
+    hostTerminalReconnectAttempts: 0,
+    hostTerminalReconnectTimer: null,
+    containerTerminalReconnecting: false,
+    containerTerminalReconnectAttempts: 0,
+    containerTerminalReconnectTimer: null,
+    currentContainerId: null,
+
     // File Manager state
     fileManagerCurrentPath: '/',
     fileManagerFiles: [],
@@ -557,6 +566,14 @@ const App = {
 
     // Cleanup when leaving terminal page
     cleanupHostTerminal() {
+        // Clear reconnect timer
+        if (this.hostTerminalReconnectTimer) {
+            clearTimeout(this.hostTerminalReconnectTimer);
+            this.hostTerminalReconnectTimer = null;
+        }
+        this.hostTerminalReconnecting = false;
+        this.hostTerminalReconnectAttempts = 0;
+
         if (this.hostTerminalSocket) {
             this.hostTerminalSocket.close();
             this.hostTerminalSocket = null;
@@ -581,6 +598,22 @@ const App = {
             console.error('Failed to get WS token:', error);
             return null;
         }
+    },
+
+    // Calculate exponential backoff delay
+    getReconnectDelay(attempt) {
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+        const baseDelay = 1000;
+        const maxDelay = 30000;
+        const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+        return delay;
+    },
+
+    // Show reconnection status in terminal
+    showReconnectionStatus(terminal, attempt, nextRetryMs) {
+        if (!terminal) return;
+        const nextRetrySec = Math.round(nextRetryMs / 1000);
+        terminal.writeln(`\r\n\x1b[33mConnection lost. Reconnecting... (attempt ${attempt + 1}, next retry in ${nextRetrySec}s)\x1b[0m`);
     },
 
     // Events methods
@@ -900,53 +933,39 @@ const App = {
         });
     },
 
-    // Initialize host terminal
-    async initHostTerminal() {
-        const container = document.getElementById('host-terminal-container');
+    // Connect/reconnect host terminal WebSocket
+    async connectHostTerminalSocket() {
+        // Clear any existing reconnect timer
+        if (this.hostTerminalReconnectTimer) {
+            clearTimeout(this.hostTerminalReconnectTimer);
+            this.hostTerminalReconnectTimer = null;
+        }
 
-        // Check if xterm is available
-        if (typeof Terminal === 'undefined') {
-            container.innerHTML = '<p style="color: var(--danger); padding: 20px;">Failed to load terminal library.</p>';
+        // Close existing socket if any
+        if (this.hostTerminalSocket) {
+            this.hostTerminalSocket.close();
+            this.hostTerminalSocket = null;
+        }
+
+        if (!this.hostTerminal) {
+            console.error('Host terminal not initialized');
             return;
         }
 
-        container.innerHTML = '';
-
-        // Reset command history state
-        this.commandHistory = [];
-        this.historyIndex = -1;
-        this.currentLine = '';
-        this.savedLine = '';
-
-        // Create terminal
-        this.hostTerminal = new Terminal({
-            cursorBlink: true,
-            fontSize: 14,
-            fontFamily: '"Consolas", "Monaco", monospace',
-            theme: {
-                background: '#1e1e1e',
-                foreground: '#d4d4d4'
-            }
-        });
-
-        // Add fit addon if available
-        if (typeof FitAddon !== 'undefined') {
-            this.hostTerminalFitAddon = new FitAddon.FitAddon();
-            this.hostTerminal.loadAddon(this.hostTerminalFitAddon);
+        if (this.hostTerminalReconnecting) {
+            this.hostTerminal.writeln(`\r\nReconnecting...\r\n`);
+        } else {
+            this.hostTerminal.writeln('Connecting to host...\r\n');
         }
-
-        this.hostTerminal.open(container);
-
-        if (this.hostTerminalFitAddon) {
-            this.hostTerminalFitAddon.fit();
-        }
-
-        this.hostTerminal.writeln('Connecting to host...\r\n');
 
         // Get CSRF token for WebSocket
         const wsToken = await this.getWSToken();
         if (!wsToken) {
             this.hostTerminal.writeln('\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
+            // Schedule reconnect if this is a reconnection attempt
+            if (this.hostTerminalReconnecting && this.currentPage === 'terminal') {
+                this.scheduleHostTerminalReconnect();
+            }
             return;
         }
 
@@ -958,7 +977,12 @@ const App = {
             this.hostTerminalSocket = new WebSocket(wsUrl);
 
             this.hostTerminalSocket.onopen = () => {
+                // Reset reconnection state on successful connection
+                this.hostTerminalReconnecting = false;
+                this.hostTerminalReconnectAttempts = 0;
+
                 if (this.hostTerminal) this.hostTerminal.writeln('\x1b[32mConnected!\x1b[0m\r\n');
+
                 // Send initial resize
                 if (this.hostTerminalFitAddon) {
                     const dims = this.hostTerminalFitAddon.proposeDimensions();
@@ -989,17 +1013,18 @@ const App = {
                 if (this.hostTerminal) this.hostTerminal.write(event.data);
             };
 
-            this.hostTerminalSocket.onclose = () => {
-                if (this.hostTerminal) {
+            this.hostTerminalSocket.onclose = (event) => {
+                // Only attempt reconnect if we're still on terminal page and not intentionally closing
+                if (this.currentPage === 'terminal' && !event.wasClean && event.code !== 1000) {
+                    this.scheduleHostTerminalReconnect();
+                } else if (this.hostTerminal) {
                     this.hostTerminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
                 }
             };
 
             this.hostTerminalSocket.onerror = (error) => {
-                if (this.hostTerminal) {
-                    this.hostTerminal.writeln('\r\n\x1b[31mConnection error\x1b[0m');
-                }
                 console.error('WebSocket error:', error);
+                // onclose will be called after onerror, so reconnection will be handled there
             };
 
             // Setup terminal input handler with server history support
@@ -1009,24 +1034,97 @@ const App = {
                 (cmd) => this.addToHistoryServer(cmd, this.hostTerminalSocket)
             );
 
-            // Handle resize
-            window.addEventListener('resize', () => {
-                if (this.hostTerminalFitAddon && this.hostTerminalSocket && this.hostTerminalSocket.readyState === WebSocket.OPEN) {
-                    this.hostTerminalFitAddon.fit();
-                    const dims = this.hostTerminalFitAddon.proposeDimensions();
-                    if (dims) {
-                        this.hostTerminalSocket.send(JSON.stringify({
-                            type: 'resize',
-                            cols: dims.cols,
-                            rows: dims.rows
-                        }));
-                    }
-                }
-            });
-
         } catch (error) {
             this.hostTerminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
+            // Schedule reconnect on error
+            if (this.currentPage === 'terminal') {
+                this.scheduleHostTerminalReconnect();
+            }
         }
+    },
+
+    // Schedule host terminal reconnection with exponential backoff
+    scheduleHostTerminalReconnect() {
+        this.hostTerminalReconnecting = true;
+        const delay = this.getReconnectDelay(this.hostTerminalReconnectAttempts);
+
+        this.showReconnectionStatus(this.hostTerminal, this.hostTerminalReconnectAttempts, delay);
+
+        this.hostTerminalReconnectAttempts++;
+
+        this.hostTerminalReconnectTimer = setTimeout(() => {
+            if (this.currentPage === 'terminal') {
+                this.connectHostTerminalSocket();
+            }
+        }, delay);
+    },
+
+    // Initialize host terminal
+    async initHostTerminal() {
+        const container = document.getElementById('host-terminal-container');
+
+        // Check if xterm is available
+        if (typeof Terminal === 'undefined') {
+            container.innerHTML = '<p style="color: var(--danger); padding: 20px;">Failed to load terminal library.</p>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        // Reset reconnection state
+        this.hostTerminalReconnecting = false;
+        this.hostTerminalReconnectAttempts = 0;
+        if (this.hostTerminalReconnectTimer) {
+            clearTimeout(this.hostTerminalReconnectTimer);
+            this.hostTerminalReconnectTimer = null;
+        }
+
+        // Reset command history state
+        this.commandHistory = [];
+        this.historyIndex = -1;
+        this.currentLine = '';
+        this.savedLine = '';
+
+        // Create terminal
+        this.hostTerminal = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: '"Consolas", "Monaco", monospace',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4'
+            }
+        });
+
+        // Add fit addon if available
+        if (typeof FitAddon !== 'undefined') {
+            this.hostTerminalFitAddon = new FitAddon.FitAddon();
+            this.hostTerminal.loadAddon(this.hostTerminalFitAddon);
+        }
+
+        this.hostTerminal.open(container);
+
+        if (this.hostTerminalFitAddon) {
+            this.hostTerminalFitAddon.fit();
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            if (this.hostTerminalFitAddon && this.hostTerminalSocket && this.hostTerminalSocket.readyState === WebSocket.OPEN) {
+                this.hostTerminalFitAddon.fit();
+                const dims = this.hostTerminalFitAddon.proposeDimensions();
+                if (dims) {
+                    this.hostTerminalSocket.send(JSON.stringify({
+                        type: 'resize',
+                        cols: dims.cols,
+                        rows: dims.rows
+                    }));
+                }
+            }
+        });
+
+        // Connect to WebSocket
+        await this.connectHostTerminalSocket();
     },
 
     // Auto-refresh configuration per page
@@ -1781,6 +1879,115 @@ const App = {
         }
     },
 
+    // Connect/reconnect container terminal WebSocket
+    async connectContainerTerminalSocket() {
+        // Clear any existing reconnect timer
+        if (this.containerTerminalReconnectTimer) {
+            clearTimeout(this.containerTerminalReconnectTimer);
+            this.containerTerminalReconnectTimer = null;
+        }
+
+        // Close existing socket if any
+        if (this.terminalSocket) {
+            this.terminalSocket.close();
+            this.terminalSocket = null;
+        }
+
+        if (!this.terminal || !this.currentContainerId) {
+            console.error('Container terminal not initialized or no container ID');
+            return;
+        }
+
+        if (this.containerTerminalReconnecting) {
+            this.terminal.writeln(`\r\nReconnecting...\r\n`);
+        } else {
+            this.terminal.writeln('Connecting to container...');
+        }
+
+        // Get CSRF token for WebSocket
+        const wsToken = await this.getWSToken();
+        if (!wsToken) {
+            this.terminal.writeln('\r\n\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
+            // Schedule reconnect if this is a reconnection attempt
+            if (this.containerTerminalReconnecting) {
+                this.scheduleContainerTerminalReconnect();
+            }
+            return;
+        }
+
+        // Connect WebSocket with CSRF token
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/containers/${this.currentContainerId}/terminal?ws_token=${encodeURIComponent(wsToken)}`;
+
+        try {
+            this.terminalSocket = new WebSocket(wsUrl);
+
+            this.terminalSocket.onopen = () => {
+                // Reset reconnection state on successful connection
+                this.containerTerminalReconnecting = false;
+                this.containerTerminalReconnectAttempts = 0;
+
+                if (this.terminal) this.terminal.writeln('Connected!\r\n');
+            };
+
+            this.terminalSocket.onmessage = (event) => {
+                // Write to terminal
+                if (this.terminal) this.terminal.write(event.data);
+            };
+
+            this.terminalSocket.onclose = (event) => {
+                // Only attempt reconnect if modal is still open and not intentionally closing
+                const modal = document.getElementById('modal-terminal');
+                const isModalOpen = modal && !modal.classList.contains('hidden');
+
+                if (isModalOpen && !event.wasClean && event.code !== 1000) {
+                    this.scheduleContainerTerminalReconnect();
+                } else if (this.terminal) {
+                    this.terminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
+                }
+            };
+
+            this.terminalSocket.onerror = (error) => {
+                console.error('Container WebSocket error:', error);
+                // onclose will be called after onerror, so reconnection will be handled there
+            };
+
+            // Setup terminal input handler with localStorage history support
+            this.setupTerminalInputHandler(
+                this.terminal,
+                this.terminalSocket,
+                (cmd) => this.addToHistoryLocal(cmd)
+            );
+
+        } catch (error) {
+            this.terminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
+            // Schedule reconnect on error
+            const modal = document.getElementById('modal-terminal');
+            const isModalOpen = modal && !modal.classList.contains('hidden');
+            if (isModalOpen) {
+                this.scheduleContainerTerminalReconnect();
+            }
+        }
+    },
+
+    // Schedule container terminal reconnection with exponential backoff
+    scheduleContainerTerminalReconnect() {
+        this.containerTerminalReconnecting = true;
+        const delay = this.getReconnectDelay(this.containerTerminalReconnectAttempts);
+
+        this.showReconnectionStatus(this.terminal, this.containerTerminalReconnectAttempts, delay);
+
+        this.containerTerminalReconnectAttempts++;
+
+        this.containerTerminalReconnectTimer = setTimeout(() => {
+            const modal = document.getElementById('modal-terminal');
+            const isModalOpen = modal && !modal.classList.contains('hidden');
+            if (isModalOpen) {
+                this.connectContainerTerminalSocket();
+            }
+        }, delay);
+    },
+
     // Open terminal
     async openTerminal(containerId) {
         this.showModal('modal-terminal');
@@ -1798,6 +2005,14 @@ const App = {
 
         // Save current container ID for history management
         this.currentContainerId = containerId;
+
+        // Reset reconnection state
+        this.containerTerminalReconnecting = false;
+        this.containerTerminalReconnectAttempts = 0;
+        if (this.containerTerminalReconnectTimer) {
+            clearTimeout(this.containerTerminalReconnectTimer);
+            this.containerTerminalReconnectTimer = null;
+        }
 
         // Load command history from localStorage for this container
         this.loadContainerHistory(containerId);
@@ -1828,54 +2043,20 @@ const App = {
             this.terminalFitAddon.fit();
         }
 
-        this.terminal.writeln('Connecting to container...');
-
-        // Get CSRF token for WebSocket
-        const wsToken = await this.getWSToken();
-        if (!wsToken) {
-            this.terminal.writeln('\r\n\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
-            return;
-        }
-
-        // Connect WebSocket with CSRF token
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/containers/${containerId}/terminal?ws_token=${encodeURIComponent(wsToken)}`;
-
-        try {
-            this.terminalSocket = new WebSocket(wsUrl);
-
-            this.terminalSocket.onopen = () => {
-                if (this.terminal) this.terminal.writeln('Connected!\r\n');
-            };
-
-            this.terminalSocket.onmessage = (event) => {
-                // Write to terminal
-                if (this.terminal) this.terminal.write(event.data);
-            };
-
-            this.terminalSocket.onclose = () => {
-                if (this.terminal) this.terminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
-            };
-
-            this.terminalSocket.onerror = (error) => {
-                if (this.terminal) this.terminal.writeln('\r\n\x1b[31mConnection error\x1b[0m');
-                console.error('WebSocket error:', error);
-            };
-
-            // Setup terminal input handler with localStorage history support
-            this.setupTerminalInputHandler(
-                this.terminal,
-                this.terminalSocket,
-                (cmd) => this.addToHistoryLocal(cmd)
-            );
-
-        } catch (error) {
-            this.terminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
-        }
+        // Connect to WebSocket
+        await this.connectContainerTerminalSocket();
     },
 
     // Close terminal
     closeTerminal() {
+        // Clear reconnect timer
+        if (this.containerTerminalReconnectTimer) {
+            clearTimeout(this.containerTerminalReconnectTimer);
+            this.containerTerminalReconnectTimer = null;
+        }
+        this.containerTerminalReconnecting = false;
+        this.containerTerminalReconnectAttempts = 0;
+
         if (this.terminalSocket) {
             this.terminalSocket.close();
             this.terminalSocket = null;

@@ -22,6 +22,15 @@ import (
 	"podmanview/internal/podman"
 )
 
+const (
+	// WebSocket ping interval
+	pingInterval = 30 * time.Second
+	// Pong wait timeout (if no pong received within this time, connection is dead)
+	pongWait = 60 * time.Second
+	// Write wait timeout
+	writeWait = 10 * time.Second
+)
+
 // TerminalHandler handles terminal WebSocket connections
 type TerminalHandler struct {
 	client         *podman.Client
@@ -59,14 +68,14 @@ func (h *TerminalHandler) checkOrigin(r *http.Request) bool {
 		return false
 	}
 
-	// Validate token (one-time use, auto-deleted after validation)
+	// Validate token (allows reconnection within grace period)
 	username, valid := h.wsTokenStore.Validate(token)
 	if !valid {
-		log.Printf("WebSocket rejected: invalid or expired ws_token")
+		log.Printf("WebSocket rejected: invalid or expired ws_token (token may have exceeded max uses or grace period)")
 		return false
 	}
 
-	log.Printf("WebSocket connection authorized for user: %s", username)
+	log.Printf("WebSocket connection authorized for user: %s (reconnection supported for %v)", username, auth.WSTokenGracePeriod)
 	return true
 }
 
@@ -94,6 +103,13 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+
+	// Setup pong handler to keep connection alive
+	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	// Log terminal connection
 	h.eventStore.Add(events.EventTerminalHost, user.Username, getClientIP(r), true, "")
@@ -128,6 +144,26 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+
+	// Ping ticker to keep connection alive
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+					log.Printf("Failed to send ping: %v", err)
+					return
+				}
+			}
+		}
+	}()
 
 	// Read from PTY -> write to WebSocket
 	go func() {
@@ -268,12 +304,39 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Setup pong handler to keep connection alive
+	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	// Log terminal connection
 	h.eventStore.Add(events.EventTerminalContainer, user.Username, getClientIP(r), true, shortID(containerID))
 
 	// Start proxying
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+
+	// Ping ticker to keep connection alive
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+					log.Printf("Container terminal: Failed to send ping: %v", err)
+					return
+				}
+			}
+		}
+	}()
 
 	// Read from container -> write to WebSocket
 	go func() {
@@ -351,4 +414,3 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-
