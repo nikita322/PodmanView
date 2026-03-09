@@ -3,6 +3,9 @@ podmanview
 *.exe
 *.md
 
+# Release script
+release.bat
+
 # Environment files
 .env
 

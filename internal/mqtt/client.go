@@ -21,13 +21,24 @@ type Config struct {
 	UseTLS   bool   // Enable TLS connection
 }
 
+// MessageHandler is a callback for incoming MQTT messages
+type MessageHandler func(topic string, payload []byte)
+
+// subscription holds info for re-subscribing on reconnect
+type subscription struct {
+	topic   string
+	qos     byte
+	handler mqtt.MessageHandler
+}
+
 // Client wraps the MQTT client with additional functionality
 type Client struct {
-	client   mqtt.Client
-	config   Config
-	mu       sync.RWMutex
-	logger   *log.Logger
-	isActive bool
+	client        mqtt.Client
+	config        Config
+	mu            sync.RWMutex
+	logger        *log.Logger
+	isActive      bool
+	subscriptions map[string]subscription // active subscriptions for re-subscribe on reconnect
 }
 
 // New creates a new MQTT client
@@ -41,8 +52,9 @@ func New(cfg Config, logger *log.Logger) (*Client, error) {
 	}
 
 	c := &Client{
-		config: cfg,
-		logger: logger,
+		config:        cfg,
+		logger:        logger,
+		subscriptions: make(map[string]subscription),
 	}
 
 	opts := mqtt.NewClientOptions()
@@ -74,6 +86,24 @@ func New(cfg Config, logger *log.Logger) (*Client, error) {
 	opts.SetOnConnectHandler(func(client mqtt.Client) {
 		if c.logger != nil {
 			c.logger.Printf("[MQTT] Connected to broker: %s", cfg.Broker)
+		}
+		// Re-subscribe to all active subscriptions on reconnect
+		c.mu.RLock()
+		subs := make([]subscription, 0, len(c.subscriptions))
+		for _, s := range c.subscriptions {
+			subs = append(subs, s)
+		}
+		c.mu.RUnlock()
+
+		for _, s := range subs {
+			token := client.Subscribe(s.topic, s.qos, s.handler)
+			if token.Wait() && token.Error() != nil {
+				if c.logger != nil {
+					c.logger.Printf("[MQTT] Failed to re-subscribe to %s: %v", s.topic, token.Error())
+				}
+			} else if c.logger != nil {
+				c.logger.Printf("[MQTT] Re-subscribed to %s", s.topic)
+			}
 		}
 	})
 
@@ -188,6 +218,70 @@ func (c *Client) PublishRaw(topic string, payload interface{}, retained bool) er
 
 	if c.logger != nil {
 		c.logger.Printf("[MQTT] Published (raw) to %s", topic)
+	}
+
+	return nil
+}
+
+// Subscribe subscribes to a topic with prefix and calls handler on messages
+func (c *Client) Subscribe(topic string, qos byte, handler MessageHandler) error {
+	fullTopic := c.buildTopic(topic)
+	return c.SubscribeRaw(fullTopic, qos, handler)
+}
+
+// SubscribeRaw subscribes to a topic without adding prefix
+func (c *Client) SubscribeRaw(topic string, qos byte, handler MessageHandler) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.isActive {
+		return fmt.Errorf("MQTT client is not connected")
+	}
+
+	// Wrap handler to match paho signature
+	pahoHandler := func(client mqtt.Client, msg mqtt.Message) {
+		handler(msg.Topic(), msg.Payload())
+	}
+
+	token := c.client.Subscribe(topic, qos, pahoHandler)
+	if token.Wait() && token.Error() != nil {
+		return fmt.Errorf("failed to subscribe to %s: %w", topic, token.Error())
+	}
+
+	// Store for re-subscribe on reconnect
+	c.subscriptions[topic] = subscription{
+		topic:   topic,
+		qos:     qos,
+		handler: pahoHandler,
+	}
+
+	if c.logger != nil {
+		c.logger.Printf("[MQTT] Subscribed to %s (QoS %d)", topic, qos)
+	}
+
+	return nil
+}
+
+// Unsubscribe removes subscription from a topic
+func (c *Client) Unsubscribe(topics ...string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.isActive {
+		return fmt.Errorf("MQTT client is not connected")
+	}
+
+	token := c.client.Unsubscribe(topics...)
+	if token.Wait() && token.Error() != nil {
+		return fmt.Errorf("failed to unsubscribe: %w", token.Error())
+	}
+
+	for _, t := range topics {
+		delete(c.subscriptions, t)
+	}
+
+	if c.logger != nil {
+		c.logger.Printf("[MQTT] Unsubscribed from %v", topics)
 	}
 
 	return nil

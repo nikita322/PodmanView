@@ -17,11 +17,12 @@ import (
 	"podmanview/internal/events"
 	"podmanview/internal/logger"
 	"podmanview/internal/mqtt"
-	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/demo"
 	"podmanview/internal/plugins/led"
+	"podmanview/internal/plugins/mqtt2http"
 	"podmanview/internal/plugins/temperature"
+	"podmanview/internal/podman"
 	"podmanview/internal/storage"
 )
 
@@ -132,6 +133,18 @@ func main() {
 		}
 	}
 
+	// Check if mqtt2http plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("mqtt2http")
+	if err == storage.ErrPluginNotFound {
+		appLogger.Printf("Initializing default configuration for mqtt2http plugin")
+		if err := pluginStorage.SetPluginConfig("mqtt2http", &storage.PluginConfig{
+			Enabled: true,
+			Name:    "MQTT to HTTP",
+		}); err != nil {
+			appLogger.Printf("Warning: Failed to set default mqtt2http plugin config: %v", err)
+		}
+	}
+
 	// Initialize MQTT services if configured
 	var mqttClient *mqtt.Client
 	var mqttPublisher *mqtt.Publisher
@@ -175,6 +188,10 @@ func main() {
 
 	if err := pluginRegistry.Register(led.New()); err != nil {
 		appLogger.Fatalf("Failed to register led plugin: %v", err)
+	}
+
+	if err := pluginRegistry.Register(mqtt2http.New()); err != nil {
+		appLogger.Fatalf("Failed to register mqtt2http plugin: %v", err)
 	}
 
 	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())

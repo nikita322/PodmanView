@@ -1,0 +1,757 @@
+<!-- MQTT to HTTP Trigger Plugin Interface v1.0 -->
+<section id="page-plugin-mqtt2http" class="content-page hidden" data-plugin-version="1.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="mqtt2http-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">MQTT to HTTP</h1>
+        </div>
+        <div class="page-actions">
+            <button id="mqtt2http-add-btn" class="btn btn-primary">+ Add Block</button>
+        </div>
+    </div>
+
+    <!-- Status Section -->
+    <div class="info-section">
+        <h2>Status</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">MQTT:</span>
+                <span class="info-value" id="mqtt2http-mqtt-status">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Blocks:</span>
+                <span class="info-value" id="mqtt2http-block-count">-</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- How to use -->
+    <div class="info-section" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="mqtt2http-help-toggle">
+            <h2 style="margin: 0;">How to use</h2>
+            <span id="mqtt2http-help-arrow" style="font-size: 1.2em; transition: transform 0.2s;">&#9660;</span>
+        </div>
+        <div id="mqtt2http-help-content" style="display: none; margin-top: 12px; font-size: 0.9em; line-height: 1.6; color: var(--text-secondary, #aaa);">
+            <p>This plugin listens to MQTT topics and triggers HTTP requests when conditions are met.</p>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Trigger Conditions</h3>
+            <ul style="padding-left: 20px; margin: 4px 0;">
+                <li><b>Topic regex</b> — regular expression to match MQTT topic, e.g. <code>zigbee2mqtt/.*протечка.*</code></li>
+                <li><b>Payload regex</b> — optional regex to match message payload, e.g. <code>"water_leak":true</code></li>
+                <li><b>Mode</b>:
+                    <ul style="padding-left: 16px; margin: 2px 0;">
+                        <li><b>Always</b> — triggers on every matching message</li>
+                        <li><b>On change</b> — triggers only when payload match transitions from false to true (edge trigger). Use this for sensors that send data periodically — the action will fire once when the value changes, not on every report.</li>
+                    </ul>
+                </li>
+                <li><b>AND / OR</b> — combine multiple conditions. OR = any condition fires, AND = all conditions must match simultaneously.</li>
+            </ul>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">HTTP Action</h3>
+            <ul style="padding-left: 20px; margin: 4px 0;">
+                <li><b>Method</b> — GET, POST, PUT, DELETE, PATCH</li>
+                <li><b>Body Type</b>:
+                    <ul style="padding-left: 16px; margin: 2px 0;">
+                        <li><b>Forward MQTT payload</b> — sends the raw MQTT JSON as request body</li>
+                        <li><b>JSON / Form / Raw</b> — custom body with template variable support</li>
+                        <li><b>No body</b> — sends request without body</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Template Variables</h3>
+            <p style="margin: 4px 0;">Available in Body and URL fields (except "Forward MQTT payload" mode):</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 8px 0;">
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{topic}}</code></td>
+                    <td style="padding: 4px 8px;">Full MQTT topic, e.g. <code>zigbee2mqtt/Water Sensor</code></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{topic_name}}</code></td>
+                    <td style="padding: 4px 8px;">Last segment of topic (after last /), e.g. <code>Water Sensor</code></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{payload}}</code></td>
+                    <td style="padding: 4px 8px;">Entire MQTT payload as string</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{payload.field}}</code></td>
+                    <td style="padding: 4px 8px;">Value of a specific JSON field, e.g. <code>{{payload.battery}}</code> → <code>100</code></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{timestamp}}</code></td>
+                    <td style="padding: 4px 8px;">Unix timestamp in milliseconds</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 8px;"><code>{{timestamp_s}}</code></td>
+                    <td style="padding: 4px 8px;">Unix timestamp in seconds</td>
+                </tr>
+            </table>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Example: Water Leak → VK Notification</h3>
+            <div style="background: var(--bg-secondary, #2a2a3e); padding: 12px; border-radius: 6px; margin: 8px 0;">
+                <div><b>Topic regex:</b> <code>zigbee2mqtt/.*протечка.*</code></div>
+                <div><b>Payload regex:</b> <code>"water_leak":true</code></div>
+                <div><b>Mode:</b> On change</div>
+                <div><b>Method:</b> POST</div>
+                <div><b>Body Type:</b> Form data</div>
+                <div><b>Body:</b></div>
+                <code style="word-break: break-all; font-size: 0.85em;">access_token=YOUR_TOKEN&peer_id=2000000002&message=🚨{{topic_name}}: протечка🚨&random_id={{timestamp}}&v=5.199</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- Blocks List -->
+    <div id="mqtt2http-blocks-container" style="margin-top: 20px;"></div>
+
+    <!-- Block Editor Modal -->
+    <div id="mqtt2http-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 80%; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2 id="mqtt2http-modal-title">Add Block</h2>
+                <button id="mqtt2http-modal-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Block Name -->
+                <div class="form-group">
+                    <label>Block Name</label>
+                    <input type="text" id="mqtt2http-block-name" class="form-input" placeholder="My trigger block">
+                </div>
+
+                <!-- Trigger Conditions -->
+                <div class="form-group">
+                    <label>Trigger Conditions</label>
+                    <div id="mqtt2http-conditions-list"></div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                        <select id="mqtt2http-operator" class="form-input" style="width: auto;">
+                            <option value="OR">OR</option>
+                            <option value="AND">AND</option>
+                        </select>
+                        <button id="mqtt2http-add-condition" class="btn" style="white-space: nowrap;">+ Condition</button>
+                    </div>
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 20px 0;">
+
+                <!-- HTTP Action -->
+                <div class="form-group">
+                    <label>HTTP Action</label>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <select id="mqtt2http-method" class="form-input" style="width: 120px;">
+                            <option value="GET">GET</option>
+                            <option value="POST" selected>POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                        </select>
+                        <input type="text" id="mqtt2http-url" class="form-input" placeholder="http://example.com/api/endpoint" style="flex: 1;">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Body Type</label>
+                    <select id="mqtt2http-body-type" class="form-input">
+                        <option value="forward">Forward MQTT payload</option>
+                        <option value="json">JSON (custom)</option>
+                        <option value="form">Form data</option>
+                        <option value="raw">Raw text</option>
+                        <option value="none">No body</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="mqtt2http-body-group">
+                    <label>Body</label>
+                    <textarea id="mqtt2http-body" class="form-input" rows="4" placeholder='{"key": "value"}'></textarea>
+                    <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 6px;">
+                        Template variables: <code>{{topic}}</code> <code>{{topic_name}}</code> <code>{{payload}}</code> <code>{{payload.field}}</code> <code>{{timestamp}}</code> <code>{{timestamp_s}}</code>
+                    </div>
+                </div>
+
+                <!-- Headers -->
+                <div class="form-group">
+                    <label>Headers</label>
+                    <div id="mqtt2http-headers-list"></div>
+                    <button id="mqtt2http-add-header" class="btn" style="margin-top: 5px;">+ Header</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Timeout (seconds)</label>
+                    <input type="number" id="mqtt2http-timeout" class="form-input" value="10" min="1" max="60" style="width: 100px;">
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--border-color);">
+                <button id="mqtt2http-modal-cancel" class="btn">Cancel</button>
+                <button id="mqtt2http-modal-save" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Logs -->
+    <div class="info-section" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Execution Log</h2>
+            <button id="mqtt2http-refresh-logs" class="btn">Refresh</button>
+        </div>
+        <div id="mqtt2http-logs-container">
+            <span class="info-value">No logs yet</span>
+        </div>
+    </div>
+</section>
+
+<style>
+    #page-plugin-mqtt2http .block-card {
+        background: var(--card-bg, #1e1e2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    #page-plugin-mqtt2http .block-card.disabled {
+        opacity: 0.5;
+    }
+    #page-plugin-mqtt2http .block-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    #page-plugin-mqtt2http .block-name {
+        font-weight: 600;
+        font-size: 1.05em;
+    }
+    #page-plugin-mqtt2http .block-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    #page-plugin-mqtt2http .block-detail {
+        font-size: 0.85em;
+        color: var(--text-secondary, #aaa);
+        margin-top: 4px;
+    }
+    #page-plugin-mqtt2http .block-detail code {
+        background: var(--bg-secondary, #2a2a3e);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 0.95em;
+    }
+    #page-plugin-mqtt2http .condition-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+        align-items: center;
+    }
+    #page-plugin-mqtt2http .condition-row input {
+        flex: 1;
+    }
+    #page-plugin-mqtt2http .header-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+        align-items: center;
+    }
+    #page-plugin-mqtt2http .header-row input {
+        flex: 1;
+    }
+    #page-plugin-mqtt2http .log-entry {
+        display: flex;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-color, #333);
+        font-size: 0.85em;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    #page-plugin-mqtt2http .log-status {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        min-width: 40px;
+        text-align: center;
+    }
+    #page-plugin-mqtt2http .log-status.success {
+        background: #1a3a1a;
+        color: #4ade80;
+    }
+    #page-plugin-mqtt2http .log-status.error {
+        background: #3a1a1a;
+        color: #f87171;
+    }
+    #page-plugin-mqtt2http .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #page-plugin-mqtt2http .modal-content {
+        background: var(--card-bg, #1e1e2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 12px;
+        width: 90%;
+    }
+    #page-plugin-mqtt2http .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-color, #333);
+    }
+    #page-plugin-mqtt2http .modal-header h2 {
+        margin: 0;
+    }
+    #page-plugin-mqtt2http .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-color, #fff);
+        font-size: 1.5em;
+        cursor: pointer;
+        padding: 0 5px;
+    }
+    #page-plugin-mqtt2http .modal-body {
+        padding: 20px;
+    }
+    #page-plugin-mqtt2http .form-group {
+        margin-bottom: 15px;
+    }
+    #page-plugin-mqtt2http .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        color: var(--text-secondary, #aaa);
+        font-size: 0.9em;
+    }
+    #page-plugin-mqtt2http .form-input {
+        background: var(--bg-secondary, #2a2a3e);
+        border: 1px solid var(--border-color, #444);
+        color: var(--text-color, #fff);
+        padding: 8px 12px;
+        border-radius: 6px;
+        width: 100%;
+        box-sizing: border-box;
+        font-family: inherit;
+        font-size: 0.9em;
+    }
+    #page-plugin-mqtt2http .form-input:focus {
+        outline: none;
+        border-color: var(--primary-color, #7c3aed);
+    }
+    #page-plugin-mqtt2http .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary, #aaa);
+        cursor: pointer;
+        padding: 4px;
+        font-size: 1.1em;
+    }
+    #page-plugin-mqtt2http .btn-icon:hover {
+        color: var(--text-color, #fff);
+    }
+    #page-plugin-mqtt2http .btn-icon.danger:hover {
+        color: #f87171;
+    }
+</style>
+
+<script>
+(function() {
+    'use strict';
+
+    const M2H = {
+        initialized: false,
+        editingBlockId: null,
+        pollId: null,
+        blocksMap: {},  // id -> block data for edit
+
+        init() {
+            if (this.initialized) return;
+            this.initialized = true;
+            this.bindEvents();
+            this.loadStatus();
+            this.loadBlocks();
+            this.loadLogs();
+            this.pollId = setInterval(() => this.loadLogs(), 15000);
+        },
+
+        cleanup() {
+            if (this.pollId) { clearInterval(this.pollId); this.pollId = null; }
+            this.initialized = false;
+        },
+
+        bindEvents() {
+            const $ = id => document.getElementById(id);
+            $('mqtt2http-back-btn')?.addEventListener('click', () => {
+                if (typeof App !== 'undefined' && App.navigateTo) App.navigateTo('plugins');
+            });
+            $('mqtt2http-add-btn')?.addEventListener('click', () => this.openModal());
+            $('mqtt2http-modal-close')?.addEventListener('click', () => this.closeModal());
+            $('mqtt2http-modal-cancel')?.addEventListener('click', () => this.closeModal());
+            $('mqtt2http-modal-save')?.addEventListener('click', () => this.saveBlock());
+            $('mqtt2http-add-condition')?.addEventListener('click', () => this.addConditionRow());
+            $('mqtt2http-add-header')?.addEventListener('click', () => this.addHeaderRow());
+            $('mqtt2http-refresh-logs')?.addEventListener('click', () => this.loadLogs());
+            $('mqtt2http-body-type')?.addEventListener('change', (e) => {
+                const bodyGroup = $('mqtt2http-body-group');
+                bodyGroup.style.display = (e.target.value === 'none' || e.target.value === 'forward') ? 'none' : 'block';
+            });
+            $('mqtt2http-help-toggle')?.addEventListener('click', () => {
+                const content = $('mqtt2http-help-content');
+                const arrow = $('mqtt2http-help-arrow');
+                const visible = content.style.display !== 'none';
+                content.style.display = visible ? 'none' : 'block';
+                arrow.style.transform = visible ? '' : 'rotate(180deg)';
+            });
+        },
+
+        authHeaders() {
+            return {
+                'Authorization': 'Bearer ' + localStorage.getItem('token'),
+                'Content-Type': 'application/json'
+            };
+        },
+
+        async loadStatus() {
+            try {
+                const res = await fetch('/api/plugins/mqtt2http/status', { headers: this.authHeaders() });
+                const s = await res.json();
+                const statusEl = document.getElementById('mqtt2http-mqtt-status');
+                const countEl = document.getElementById('mqtt2http-block-count');
+                if (statusEl) {
+                    if (!s.mqttConfigured) statusEl.textContent = 'Not Configured';
+                    else if (s.mqttConnected && s.subscribed) statusEl.textContent = 'Connected & Listening';
+                    else if (s.mqttConnected) statusEl.textContent = 'Connected';
+                    else statusEl.textContent = 'Disconnected';
+                }
+                if (countEl) countEl.textContent = `${s.enabledCount} / ${s.blockCount} enabled`;
+            } catch (e) { console.error('[mqtt2http] status error:', e); }
+        },
+
+        async loadBlocks() {
+            try {
+                const res = await fetch('/api/plugins/mqtt2http/blocks', { headers: this.authHeaders() });
+                const blocks = await res.json();
+                this.renderBlocks(blocks);
+            } catch (e) { console.error('[mqtt2http] load blocks error:', e); }
+        },
+
+        renderBlocks(blocks) {
+            const container = document.getElementById('mqtt2http-blocks-container');
+            if (!blocks || blocks.length === 0) {
+                container.innerHTML = '<div class="info-section"><span class="info-value">No blocks configured. Click "+ Add Block" to create one.</span></div>';
+                this.blocksMap = {};
+                return;
+            }
+
+            // Store blocks by ID for edit access
+            this.blocksMap = {};
+            blocks.forEach(b => { this.blocksMap[b.id] = b; });
+
+            container.innerHTML = blocks.map(b => {
+                const conditions = b.trigger.conditions.map(c => {
+                    let s = `<code>${this.esc(c.topicPattern)}</code>`;
+                    if (c.payloadRegex) s += ` (payload: <code>${this.esc(c.payloadRegex)}</code>)`;
+                    if (c.mode === 'on_change') s += ' <b style="color:#facc15;">[on change]</b>';
+                    return s;
+                }).join(` <b>${b.trigger.operator}</b> `);
+                return `
+                    <div class="block-card ${b.enabled ? '' : 'disabled'}">
+                        <div class="block-header">
+                            <span class="block-name">${this.esc(b.name)}</span>
+                            <div class="block-actions">
+                                <label class="toggle-label" style="margin: 0;">
+                                    <input type="checkbox" ${b.enabled ? 'checked' : ''} data-block-id="${b.id}" class="m2h-toggle-cb">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon m2h-test-btn" title="Test" data-block-id="${b.id}">&#9654;</button>
+                                <button class="btn-icon m2h-edit-btn" title="Edit" data-block-id="${b.id}">&#9998;</button>
+                                <button class="btn-icon danger m2h-delete-btn" title="Delete" data-block-id="${b.id}">&#10005;</button>
+                            </div>
+                        </div>
+                        <div class="block-detail">Triggers: ${conditions}</div>
+                        <div class="block-detail">Action: <b>${b.action.method}</b> <code>${this.esc(b.action.url)}</code> (${b.action.bodyType})</div>
+                    </div>`;
+            }).join('');
+
+            // Bind events via delegation
+            container.querySelectorAll('.m2h-toggle-cb').forEach(cb => {
+                cb.addEventListener('change', (e) => this.toggleBlock(e.target.dataset.blockId, e.target.checked));
+            });
+            container.querySelectorAll('.m2h-test-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => this.testBlock(e.currentTarget.dataset.blockId));
+            });
+            container.querySelectorAll('.m2h-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const block = this.blocksMap[e.currentTarget.dataset.blockId];
+                    if (block) this.openModal(block);
+                });
+            });
+            container.querySelectorAll('.m2h-delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => this.deleteBlock(e.currentTarget.dataset.blockId));
+            });
+        },
+
+        esc(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        },
+
+        openModal(block) {
+            const $ = id => document.getElementById(id);
+            $('mqtt2http-modal-title').textContent = block ? 'Edit Block' : 'Add Block';
+            $('mqtt2http-block-name').value = block ? block.name : '';
+            $('mqtt2http-method').value = block ? block.action.method : 'POST';
+            $('mqtt2http-url').value = block ? block.action.url : '';
+            $('mqtt2http-body-type').value = block ? block.action.bodyType : 'forward';
+            $('mqtt2http-body').value = block ? (block.action.body || '') : '';
+            $('mqtt2http-timeout').value = block ? (block.action.timeout || 10) : 10;
+            $('mqtt2http-operator').value = block ? block.trigger.operator : 'OR';
+
+            const bodyType = block ? block.action.bodyType : 'forward';
+            $('mqtt2http-body-group').style.display = (bodyType === 'none' || bodyType === 'forward') ? 'none' : 'block';
+
+            this.editingBlockId = block ? block.id : null;
+
+            // Render conditions
+            const condList = $('mqtt2http-conditions-list');
+            condList.innerHTML = '';
+            const conditions = block ? block.trigger.conditions : [{ topicPattern: '', payloadRegex: '', mode: 'always' }];
+            conditions.forEach(c => this.addConditionRow(c.topicPattern, c.payloadRegex, c.mode));
+
+            // Render headers
+            const headerList = $('mqtt2http-headers-list');
+            headerList.innerHTML = '';
+            if (block && block.action.headers) {
+                Object.entries(block.action.headers).forEach(([k, v]) => this.addHeaderRow(k, v));
+            }
+
+            $('mqtt2http-modal').style.display = 'flex';
+        },
+
+        closeModal() {
+            document.getElementById('mqtt2http-modal').style.display = 'none';
+            this.editingBlockId = null;
+        },
+
+        createInput(cls, placeholder, val, style) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-input ' + cls;
+            input.placeholder = placeholder;
+            input.value = val || '';
+            if (style) input.style.cssText = style;
+            return input;
+        },
+
+        addConditionRow(topic, payload, mode) {
+            const list = document.getElementById('mqtt2http-conditions-list');
+            const row = document.createElement('div');
+            row.className = 'condition-row';
+
+            row.appendChild(this.createInput('cond-topic', 'Topic regex (e.g. zigbee2mqtt/.*)', topic));
+            row.appendChild(this.createInput('cond-payload', 'Payload regex (e.g. "water_leak":true)', payload, 'max-width: 220px;'));
+
+            const select = document.createElement('select');
+            select.className = 'form-input cond-mode';
+            select.style.cssText = 'width: 120px; flex: none;';
+            select.innerHTML = '<option value="always">Always</option><option value="on_change">On change</option>';
+            select.value = mode || 'always';
+            row.appendChild(select);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn-icon danger';
+            removeBtn.title = 'Remove';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.addEventListener('click', () => row.remove());
+            row.appendChild(removeBtn);
+
+            list.appendChild(row);
+        },
+
+        addHeaderRow(key, value) {
+            const list = document.getElementById('mqtt2http-headers-list');
+            const row = document.createElement('div');
+            row.className = 'header-row';
+
+            row.appendChild(this.createInput('header-key', 'Header name', key));
+            row.appendChild(this.createInput('header-value', 'Header value', value));
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn-icon danger';
+            removeBtn.title = 'Remove';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.addEventListener('click', () => row.remove());
+            row.appendChild(removeBtn);
+
+            list.appendChild(row);
+        },
+
+        async saveBlock() {
+            const $ = id => document.getElementById(id);
+
+            // Collect conditions
+            const condRows = $('mqtt2http-conditions-list').querySelectorAll('.condition-row');
+            const conditions = [];
+            condRows.forEach(row => {
+                const topic = row.querySelector('.cond-topic').value.trim();
+                if (topic) {
+                    conditions.push({
+                        topicPattern: topic,
+                        payloadRegex: row.querySelector('.cond-payload').value.trim(),
+                        mode: row.querySelector('.cond-mode').value
+                    });
+                }
+            });
+
+            if (conditions.length === 0) {
+                this.showError('At least one trigger condition is required');
+                return;
+            }
+
+            // Collect headers
+            const headerRows = $('mqtt2http-headers-list').querySelectorAll('.header-row');
+            const headers = {};
+            headerRows.forEach(row => {
+                const k = row.querySelector('.header-key').value.trim();
+                const v = row.querySelector('.header-value').value.trim();
+                if (k) headers[k] = v;
+            });
+
+            const block = {
+                id: this.editingBlockId || '',
+                name: $('mqtt2http-block-name').value.trim(),
+                enabled: true,
+                trigger: {
+                    conditions: conditions,
+                    operator: $('mqtt2http-operator').value
+                },
+                action: {
+                    method: $('mqtt2http-method').value,
+                    url: $('mqtt2http-url').value.trim(),
+                    headers: headers,
+                    bodyType: $('mqtt2http-body-type').value,
+                    body: $('mqtt2http-body').value,
+                    timeout: parseInt($('mqtt2http-timeout').value) || 10
+                }
+            };
+
+            if (!block.name) { this.showError('Block name is required'); return; }
+            if (!block.action.url) { this.showError('URL is required'); return; }
+
+            const isEdit = !!this.editingBlockId;
+            const method = isEdit ? 'PUT' : 'POST';
+
+            try {
+                const res = await fetch('/api/plugins/mqtt2http/blocks', {
+                    method: method,
+                    headers: this.authHeaders(),
+                    body: JSON.stringify(block)
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to save block');
+                }
+
+                this.closeModal();
+                this.loadBlocks();
+                this.loadStatus();
+                this.showSuccess(isEdit ? 'Block updated' : 'Block created');
+            } catch (e) {
+                this.showError(e.message);
+            }
+        },
+
+        async toggleBlock(id, enabled) {
+            try {
+                await fetch('/api/plugins/mqtt2http/blocks/toggle', {
+                    method: 'POST',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify({ id, enabled })
+                });
+                this.loadBlocks();
+                this.loadStatus();
+            } catch (e) { this.showError('Failed to toggle block'); }
+        },
+
+        async deleteBlock(id) {
+            if (!confirm('Delete this block?')) return;
+            try {
+                await fetch('/api/plugins/mqtt2http/blocks', {
+                    method: 'DELETE',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify({ id })
+                });
+                this.loadBlocks();
+                this.loadStatus();
+                this.showSuccess('Block deleted');
+            } catch (e) { this.showError('Failed to delete block'); }
+        },
+
+        async testBlock(id) {
+            try {
+                await fetch('/api/plugins/mqtt2http/blocks/test', {
+                    method: 'POST',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify({ id })
+                });
+                this.showSuccess('Test triggered — check logs');
+                setTimeout(() => this.loadLogs(), 2000);
+            } catch (e) { this.showError('Failed to test block'); }
+        },
+
+        async loadLogs() {
+            try {
+                const res = await fetch('/api/plugins/mqtt2http/logs', { headers: this.authHeaders() });
+                const logs = await res.json();
+                this.renderLogs(logs);
+            } catch (e) { console.error('[mqtt2http] logs error:', e); }
+        },
+
+        renderLogs(logs) {
+            const container = document.getElementById('mqtt2http-logs-container');
+            if (!logs || logs.length === 0) {
+                container.innerHTML = '<span class="info-value">No logs yet</span>';
+                return;
+            }
+
+            container.innerHTML = logs.slice(0, 50).map(l => {
+                const isErr = l.error || l.statusCode >= 400;
+                const statusText = l.error ? 'ERR' : l.statusCode;
+                const time = new Date(l.timestamp).toLocaleTimeString();
+                return `
+                    <div class="log-entry">
+                        <span class="log-status ${isErr ? 'error' : 'success'}">${statusText}</span>
+                        <span><b>${this.esc(l.blockName)}</b></span>
+                        <span style="color: var(--text-secondary);">${this.esc(l.triggerTopic)}</span>
+                        <span style="color: var(--text-secondary);">${l.durationMs}ms</span>
+                        <span style="color: var(--text-secondary);">${time}</span>
+                        ${l.error ? `<span style="color: #f87171; width: 100%;">${this.esc(l.error)}</span>` : ''}
+                    </div>`;
+            }).join('');
+        },
+
+        showSuccess(msg) {
+            if (typeof showToast === 'function') showToast(msg, 'success');
+            else console.log('[mqtt2http]', msg);
+        },
+
+        showError(msg) {
+            if (typeof showToast === 'function') showToast(msg, 'error');
+            else console.error('[mqtt2http]', msg);
+        }
+    };
+
+    const page = document.getElementById('page-plugin-mqtt2http');
+    if (page) {
+        page.addEventListener('plugin-page-shown', () => M2H.init());
+        page.addEventListener('plugin-page-hidden', () => M2H.cleanup());
+        if (!page.classList.contains('hidden')) M2H.init();
+    }
+})();
+</script>
