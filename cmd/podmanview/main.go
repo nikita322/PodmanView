@@ -19,7 +19,7 @@ import (
 	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/led"
-	"podmanview/internal/plugins/mqtt2http"
+	"podmanview/internal/plugins/reactor"
 	"podmanview/internal/plugins/temperature"
 	"podmanview/internal/podman"
 	"podmanview/internal/storage"
@@ -119,15 +119,15 @@ func main() {
 		}
 	}
 
-	// Check if mqtt2http plugin exists in storage
-	_, err = pluginStorage.GetPluginConfig("mqtt2http")
+	// Check if reactor plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("reactor")
 	if err == storage.ErrPluginNotFound {
-		appLogger.Printf("Initializing default configuration for mqtt2http plugin")
-		if err := pluginStorage.SetPluginConfig("mqtt2http", &storage.PluginConfig{
+		appLogger.Printf("Initializing default configuration for reactor plugin")
+		if err := pluginStorage.SetPluginConfig("reactor", &storage.PluginConfig{
 			Enabled: true,
-			Name:    "MQTT to HTTP",
+			Name:    "MQTT Reactor",
 		}); err != nil {
-			appLogger.Printf("Warning: Failed to set default mqtt2http plugin config: %v", err)
+			appLogger.Printf("Warning: Failed to set default reactor plugin config: %v", err)
 		}
 	}
 
@@ -172,8 +172,8 @@ func main() {
 		appLogger.Fatalf("Failed to register led plugin: %v", err)
 	}
 
-	if err := pluginRegistry.Register(mqtt2http.New()); err != nil {
-		appLogger.Fatalf("Failed to register mqtt2http plugin: %v", err)
+	if err := pluginRegistry.Register(reactor.New()); err != nil {
+		appLogger.Fatalf("Failed to register reactor plugin: %v", err)
 	}
 
 	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())

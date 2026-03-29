@@ -1,4 +1,4 @@
-package mqtt2http
+package reactor
 
 import (
 	"encoding/json"
@@ -9,41 +9,22 @@ import (
 	"podmanview/internal/plugins"
 )
 
-// blockRequest is used for create/update operations
-type blockRequest struct {
-	ID string `json:"id,omitempty"` // Only for update/delete/toggle
-	HookBlock
-}
-
-// statusResponse represents the plugin status
-type statusResponse struct {
-	MQTTConfigured bool `json:"mqttConfigured"`
-	MQTTConnected  bool `json:"mqttConnected"`
-	Subscribed     bool `json:"subscribed"`
-	BlockCount     int  `json:"blockCount"`
-	EnabledCount   int  `json:"enabledCount"`
-}
-
-// handleGetBlocks returns all hook blocks
+// handleGetBlocks returns all reaction blocks
 func (p *Plugin) handleGetBlocks(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
-	blocks := make([]HookBlock, len(p.blocks))
+	blocks := make([]ReactionBlock, len(p.blocks))
 	copy(blocks, p.blocks)
 	p.mu.RUnlock()
 
 	plugins.WriteJSON(w, http.StatusOK, blocks)
 }
 
-// handleCreateBlock creates a new hook block
+// handleCreateBlock creates a new reaction block
 func (p *Plugin) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
-	var block HookBlock
+	var block ReactionBlock
 	if err := json.NewDecoder(r.Body).Decode(&block); err != nil {
 		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		return
-	}
-
-	if block.ActionType == "" {
-		block.ActionType = ActionHTTP
 	}
 
 	if err := validateBlock(block); err != nil {
@@ -68,9 +49,9 @@ func (p *Plugin) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 	plugins.WriteJSON(w, http.StatusCreated, block)
 }
 
-// handleUpdateBlock updates an existing hook block
+// handleUpdateBlock updates an existing reaction block
 func (p *Plugin) handleUpdateBlock(w http.ResponseWriter, r *http.Request) {
-	var block HookBlock
+	var block ReactionBlock
 	if err := json.NewDecoder(r.Body).Decode(&block); err != nil {
 		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		return
@@ -79,10 +60,6 @@ func (p *Plugin) handleUpdateBlock(w http.ResponseWriter, r *http.Request) {
 	if block.ID == "" {
 		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Block ID is required"})
 		return
-	}
-
-	if block.ActionType == "" {
-		block.ActionType = ActionHTTP
 	}
 
 	if err := validateBlock(block); err != nil {
@@ -117,7 +94,7 @@ func (p *Plugin) handleUpdateBlock(w http.ResponseWriter, r *http.Request) {
 	plugins.WriteJSON(w, http.StatusOK, block)
 }
 
-// handleDeleteBlock deletes a hook block
+// handleDeleteBlock deletes a reaction block
 func (p *Plugin) handleDeleteBlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
@@ -154,7 +131,7 @@ func (p *Plugin) handleDeleteBlock(w http.ResponseWriter, r *http.Request) {
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Block deleted"})
 }
 
-// handleToggleBlock enables/disables a hook block
+// handleToggleBlock enables/disables a reaction block
 func (p *Plugin) handleToggleBlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID      string `json:"id"`
@@ -191,7 +168,7 @@ func (p *Plugin) handleToggleBlock(w http.ResponseWriter, r *http.Request) {
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Block toggled"})
 }
 
-// handleTestBlock manually triggers an HTTP action for testing
+// handleTestBlock manually triggers an action pipeline for testing
 func (p *Plugin) handleTestBlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
@@ -202,7 +179,7 @@ func (p *Plugin) handleTestBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.mu.RLock()
-	var block *HookBlock
+	var block *ReactionBlock
 	for _, b := range p.blocks {
 		if b.ID == req.ID {
 			blockCopy := b
@@ -217,14 +194,8 @@ func (p *Plugin) handleTestBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Execute with test payload
 	testPayload := []byte(`{"test": true}`)
-	switch block.ActionType {
-	case ActionMQTT:
-		go p.executeMQTTAction(*block, "test/manual", testPayload)
-	default:
-		go p.executeAction(*block, "test/manual", testPayload)
-	}
+	go p.executePipeline(*block, "test/manual", testPayload)
 
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Test triggered"})
 }
@@ -236,7 +207,6 @@ func (p *Plugin) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	copy(logs, p.logs)
 	p.mu.RUnlock()
 
-	// Return in reverse order (newest first)
 	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
 		logs[i], logs[j] = logs[j], logs[i]
 	}
@@ -257,20 +227,20 @@ func (p *Plugin) handleGetStatus(w http.ResponseWriter, r *http.Request) {
 			enabledCount++
 		}
 	}
-	status := statusResponse{
-		MQTTConfigured: mqttConfigured,
-		MQTTConnected:  mqttConnected,
-		Subscribed:     p.subscribed,
-		BlockCount:     len(p.blocks),
-		EnabledCount:   enabledCount,
+	status := map[string]interface{}{
+		"mqttConfigured": mqttConfigured,
+		"mqttConnected":  mqttConnected,
+		"subscribed":     p.subscribed,
+		"blockCount":     len(p.blocks),
+		"enabledCount":   enabledCount,
 	}
 	p.mu.RUnlock()
 
 	plugins.WriteJSON(w, http.StatusOK, status)
 }
 
-// validateBlock performs basic validation on a hook block
-func validateBlock(block HookBlock) error {
+// validateBlock performs validation on a reaction block
+func validateBlock(block ReactionBlock) error {
 	if block.Name == "" {
 		return fmt.Errorf("block name is required")
 	}
@@ -290,32 +260,62 @@ func validateBlock(block HookBlock) error {
 			}
 		}
 		if cond.Mode != "" && cond.Mode != TriggerAlways && cond.Mode != TriggerOnChange {
-			return fmt.Errorf("invalid trigger mode: %s (must be 'always' or 'on_change')", cond.Mode)
+			return fmt.Errorf("invalid trigger mode: %s", cond.Mode)
 		}
 	}
 	if block.Trigger.Operator != OperatorAND && block.Trigger.Operator != OperatorOR {
 		return fmt.Errorf("operator must be AND or OR")
 	}
+	if len(block.Actions) == 0 {
+		return fmt.Errorf("at least one action is required")
+	}
+	for i, action := range block.Actions {
+		if err := validateAction(i, action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	switch block.ActionType {
-	case ActionMQTT:
-		if block.MQTTAction.Topic == "" {
-			return fmt.Errorf("MQTT action topic is required")
+// validateAction validates a single action in the pipeline
+func validateAction(index int, action Action) error {
+	prefix := fmt.Sprintf("action[%d]", index)
+
+	switch action.Type {
+	case ActionHTTP:
+		if action.HTTP == nil {
+			return fmt.Errorf("%s: HTTP config is required", prefix)
 		}
-		if block.MQTTAction.QoS > 2 {
-			return fmt.Errorf("MQTT QoS must be 0, 1, or 2")
+		if action.HTTP.URL == "" {
+			return fmt.Errorf("%s: URL is required", prefix)
 		}
-	case ActionHTTP, "":
-		if block.Action.URL == "" {
-			return fmt.Errorf("action URL is required")
-		}
-		switch block.Action.Method {
+		switch action.HTTP.Method {
 		case MethodGET, MethodPOST, MethodPUT, MethodDELETE, MethodPATCH:
 		default:
-			return fmt.Errorf("unsupported HTTP method: %s", block.Action.Method)
+			return fmt.Errorf("%s: unsupported HTTP method: %s", prefix, action.HTTP.Method)
+		}
+	case ActionMQTT:
+		if action.MQTT == nil {
+			return fmt.Errorf("%s: MQTT config is required", prefix)
+		}
+		if action.MQTT.Topic == "" {
+			return fmt.Errorf("%s: MQTT topic is required", prefix)
+		}
+		if action.MQTT.QoS > 2 {
+			return fmt.Errorf("%s: MQTT QoS must be 0, 1, or 2", prefix)
+		}
+	case ActionDelay:
+		if action.Delay == nil {
+			return fmt.Errorf("%s: delay config is required", prefix)
+		}
+		if action.Delay.Seconds <= 0 {
+			return fmt.Errorf("%s: delay must be > 0 seconds", prefix)
+		}
+		if action.Delay.Seconds > 3600 {
+			return fmt.Errorf("%s: delay must be <= 3600 seconds", prefix)
 		}
 	default:
-		return fmt.Errorf("unsupported action type: %s", block.ActionType)
+		return fmt.Errorf("%s: unknown action type: %s", prefix, action.Type)
 	}
 
 	return nil

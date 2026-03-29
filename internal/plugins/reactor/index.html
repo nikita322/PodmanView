@@ -1,0 +1,709 @@
+<!-- Reactor Plugin Interface v2.0 -->
+<section id="page-plugin-reactor" class="content-page hidden" data-plugin-version="2.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="reactor-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">Reactor</h1>
+        </div>
+        <div class="page-actions">
+            <button id="reactor-add-btn" class="btn btn-primary">+ Add Reaction</button>
+        </div>
+    </div>
+
+    <!-- Status -->
+    <div class="info-section">
+        <h2>Status</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">MQTT:</span>
+                <span class="info-value" id="reactor-mqtt-status">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Blocks:</span>
+                <span class="info-value" id="reactor-block-count">-</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- How to use -->
+    <div class="info-section" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="reactor-help-toggle">
+            <h2 style="margin: 0;">How to use</h2>
+            <span id="reactor-help-arrow" style="font-size: 1.2em; transition: transform 0.2s;">&#9660;</span>
+        </div>
+        <div id="reactor-help-content" style="display: none; margin-top: 12px; font-size: 0.9em; line-height: 1.6; color: var(--text-secondary, #aaa);">
+            <p>Reactor listens to MQTT topics and executes a <b>pipeline of actions</b> when conditions are met.</p>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Trigger</h3>
+            <ul style="padding-left: 20px; margin: 4px 0;">
+                <li><b>Topic regex</b> — e.g. <code>zigbee2mqtt/.*</code></li>
+                <li><b>Payload regex</b> — e.g. <code>"water_leak":true</code></li>
+                <li><b>Mode</b>: Always (every message) or On change (edge trigger)</li>
+            </ul>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Action Pipeline</h3>
+            <p>Actions execute <b>sequentially</b>. If any action fails, the pipeline stops.</p>
+            <ul style="padding-left: 20px; margin: 4px 0;">
+                <li><b>HTTP</b> — send an HTTP request (webhooks, APIs)</li>
+                <li><b>MQTT</b> — publish to an MQTT topic (control Zigbee devices via Z2M)</li>
+                <li><b>Delay</b> — pause before the next action</li>
+            </ul>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Template Variables</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 8px 0;">
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{topic}}</code></td><td style="padding: 4px 8px;">Full MQTT topic</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{topic_name}}</code></td><td style="padding: 4px 8px;">Last segment of topic</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{payload}}</code></td><td style="padding: 4px 8px;">Entire MQTT payload</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{payload.field}}</code></td><td style="padding: 4px 8px;">JSON field value</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color, #333);">
+                    <td style="padding: 4px 8px;"><code>{{timestamp}}</code></td><td style="padding: 4px 8px;">Unix ms</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 8px;"><code>{{timestamp_s}}</code></td><td style="padding: 4px 8px;">Unix seconds</td>
+                </tr>
+            </table>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Example: Water Leak → Siren + VK + Auto-stop</h3>
+            <div style="background: var(--bg-secondary, #2a2a3e); padding: 12px; border-radius: 6px; margin: 8px 0;">
+                <div><b>Trigger:</b> topic <code>zigbee2mqtt/.*</code>, payload <code>"water_leak":true</code>, mode: On change</div>
+                <div style="margin-top: 8px;"><b>Pipeline:</b></div>
+                <div style="padding-left: 16px;">
+                    1. <b>MQTT</b> → <code>zigbee2mqtt/sirena/set</code> — <code>{"warning":{"mode":"emergency"}}</code><br>
+                    2. <b>HTTP</b> → POST VK API — send notification<br>
+                    3. <b>Delay</b> → 60 seconds<br>
+                    4. <b>MQTT</b> → <code>zigbee2mqtt/sirena/set</code> — <code>{"warning":{"mode":"stop"}}</code>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Blocks List -->
+    <div id="reactor-blocks-container" style="margin-top: 20px;"></div>
+
+    <!-- Block Editor Modal -->
+    <div id="reactor-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 80%; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2 id="reactor-modal-title">Add Reaction</h2>
+                <button id="reactor-modal-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Block Name -->
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="reactor-block-name" class="form-input" placeholder="Water leak alarm">
+                </div>
+
+                <!-- Trigger Conditions -->
+                <div class="form-group">
+                    <label>Trigger Conditions</label>
+                    <div id="reactor-conditions-list"></div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                        <select id="reactor-operator" class="form-input" style="width: auto;">
+                            <option value="OR">OR</option>
+                            <option value="AND">AND</option>
+                        </select>
+                        <button id="reactor-add-condition" class="btn" style="white-space: nowrap;">+ Condition</button>
+                    </div>
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 20px 0;">
+
+                <!-- Action Pipeline -->
+                <div class="form-group">
+                    <label>Action Pipeline</label>
+                    <div id="reactor-actions-list"></div>
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                        <button class="btn reactor-add-action" data-type="mqtt">+ MQTT</button>
+                        <button class="btn reactor-add-action" data-type="http">+ HTTP</button>
+                        <button class="btn reactor-add-action" data-type="delay">+ Delay</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--border-color);">
+                <button id="reactor-modal-cancel" class="btn">Cancel</button>
+                <button id="reactor-modal-save" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Logs -->
+    <div class="info-section" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Execution Log</h2>
+            <button id="reactor-refresh-logs" class="btn">Refresh</button>
+        </div>
+        <div id="reactor-logs-container">
+            <span class="info-value">No logs yet</span>
+        </div>
+    </div>
+</section>
+
+<style>
+    #page-plugin-reactor .block-card {
+        background: var(--card-bg, #1e1e2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    #page-plugin-reactor .block-card.disabled { opacity: 0.5; }
+    #page-plugin-reactor .block-header {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+    }
+    #page-plugin-reactor .block-name { font-weight: 600; font-size: 1.05em; }
+    #page-plugin-reactor .block-actions { display: flex; gap: 8px; align-items: center; }
+    #page-plugin-reactor .block-detail {
+        font-size: 0.85em; color: var(--text-secondary, #aaa); margin-top: 4px;
+    }
+    #page-plugin-reactor .block-detail code {
+        background: var(--bg-secondary, #2a2a3e); padding: 1px 5px; border-radius: 3px; font-size: 0.95em;
+    }
+    #page-plugin-reactor .condition-row {
+        display: flex; gap: 8px; margin-bottom: 8px; align-items: center;
+    }
+    #page-plugin-reactor .condition-row input { flex: 1; }
+    #page-plugin-reactor .action-card {
+        background: var(--bg-secondary, #2a2a3e); border: 1px solid var(--border-color, #444);
+        border-radius: 6px; padding: 12px; margin-bottom: 8px; position: relative;
+    }
+    #page-plugin-reactor .action-card-header {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    #page-plugin-reactor .action-type-badge {
+        font-size: 0.75em; font-weight: 700; text-transform: uppercase; padding: 2px 8px;
+        border-radius: 4px; letter-spacing: 0.5px;
+    }
+    #page-plugin-reactor .action-type-badge.mqtt { background: #1a3a2a; color: #4ade80; }
+    #page-plugin-reactor .action-type-badge.http { background: #1a2a3a; color: #60a5fa; }
+    #page-plugin-reactor .action-type-badge.delay { background: #3a3a1a; color: #facc15; }
+    #page-plugin-reactor .action-card-controls { display: flex; gap: 4px; }
+    #page-plugin-reactor .pipeline-step {
+        font-size: 0.8em; color: var(--text-secondary); margin-bottom: 2px;
+    }
+    #page-plugin-reactor .log-entry {
+        display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-color, #333);
+        font-size: 0.85em; align-items: center; flex-wrap: wrap;
+    }
+    #page-plugin-reactor .log-status {
+        padding: 2px 8px; border-radius: 4px; font-weight: 600; min-width: 40px; text-align: center;
+    }
+    #page-plugin-reactor .log-status.success { background: #1a3a1a; color: #4ade80; }
+    #page-plugin-reactor .log-status.error { background: #3a1a1a; color: #f87171; }
+    #page-plugin-reactor .modal-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6);
+        z-index: 1000; display: flex; align-items: center; justify-content: center;
+    }
+    #page-plugin-reactor .modal-content {
+        background: var(--card-bg, #1e1e2e); border: 1px solid var(--border-color, #333);
+        border-radius: 12px; width: 90%;
+    }
+    #page-plugin-reactor .modal-header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 15px 20px; border-bottom: 1px solid var(--border-color, #333);
+    }
+    #page-plugin-reactor .modal-header h2 { margin: 0; }
+    #page-plugin-reactor .modal-close {
+        background: none; border: none; color: var(--text-color, #fff); font-size: 1.5em; cursor: pointer; padding: 0 5px;
+    }
+    #page-plugin-reactor .modal-body { padding: 20px; }
+    #page-plugin-reactor .form-group { margin-bottom: 15px; }
+    #page-plugin-reactor .form-group label {
+        display: block; margin-bottom: 5px; font-weight: 500;
+        color: var(--text-secondary, #aaa); font-size: 0.9em;
+    }
+    #page-plugin-reactor .form-input {
+        background: var(--bg-secondary, #2a2a3e); border: 1px solid var(--border-color, #444);
+        color: var(--text-color, #fff); padding: 8px 12px; border-radius: 6px;
+        width: 100%; box-sizing: border-box; font-family: inherit; font-size: 0.9em;
+    }
+    #page-plugin-reactor .form-input:focus { outline: none; border-color: var(--primary-color, #7c3aed); }
+    #page-plugin-reactor .btn-icon {
+        background: none; border: none; color: var(--text-secondary, #aaa);
+        cursor: pointer; padding: 4px; font-size: 1.1em;
+    }
+    #page-plugin-reactor .btn-icon:hover { color: var(--text-color, #fff); }
+    #page-plugin-reactor .btn-icon.danger:hover { color: #f87171; }
+</style>
+
+<script>
+(function() {
+    'use strict';
+
+    const API = '/api/plugins/reactor';
+
+    const RC = {
+        initialized: false,
+        editingBlockId: null,
+        pollId: null,
+        blocksMap: {},
+
+        init() {
+            if (this.initialized) return;
+            this.initialized = true;
+            this.bindEvents();
+            this.loadStatus();
+            this.loadBlocks();
+            this.loadLogs();
+            this.pollId = setInterval(() => this.loadLogs(), 15000);
+        },
+
+        cleanup() {
+            if (this.pollId) { clearInterval(this.pollId); this.pollId = null; }
+            this.initialized = false;
+        },
+
+        bindEvents() {
+            const $ = id => document.getElementById(id);
+            $('reactor-back-btn')?.addEventListener('click', () => {
+                if (typeof App !== 'undefined' && App.navigateTo) App.navigateTo('plugins');
+            });
+            $('reactor-add-btn')?.addEventListener('click', () => this.openModal());
+            $('reactor-modal-close')?.addEventListener('click', () => this.closeModal());
+            $('reactor-modal-cancel')?.addEventListener('click', () => this.closeModal());
+            $('reactor-modal-save')?.addEventListener('click', () => this.saveBlock());
+            $('reactor-add-condition')?.addEventListener('click', () => this.addConditionRow());
+            $('reactor-refresh-logs')?.addEventListener('click', () => this.loadLogs());
+            $('reactor-help-toggle')?.addEventListener('click', () => {
+                const content = $('reactor-help-content');
+                const arrow = $('reactor-help-arrow');
+                const visible = content.style.display !== 'none';
+                content.style.display = visible ? 'none' : 'block';
+                arrow.style.transform = visible ? '' : 'rotate(180deg)';
+            });
+            document.querySelectorAll('.reactor-add-action').forEach(btn => {
+                btn.addEventListener('click', () => this.addActionCard(btn.dataset.type));
+            });
+        },
+
+        authHeaders() {
+            return { 'Authorization': 'Bearer ' + localStorage.getItem('token'), 'Content-Type': 'application/json' };
+        },
+
+        async loadStatus() {
+            try {
+                const res = await fetch(API + '/status', { headers: this.authHeaders() });
+                const s = await res.json();
+                const statusEl = document.getElementById('reactor-mqtt-status');
+                const countEl = document.getElementById('reactor-block-count');
+                if (statusEl) {
+                    if (!s.mqttConfigured) statusEl.textContent = 'Not Configured';
+                    else if (s.mqttConnected && s.subscribed) statusEl.textContent = 'Connected & Listening';
+                    else if (s.mqttConnected) statusEl.textContent = 'Connected';
+                    else statusEl.textContent = 'Disconnected';
+                }
+                if (countEl) countEl.textContent = `${s.enabledCount} / ${s.blockCount} enabled`;
+            } catch (e) { console.error('[reactor] status error:', e); }
+        },
+
+        async loadBlocks() {
+            try {
+                const res = await fetch(API + '/blocks', { headers: this.authHeaders() });
+                const blocks = await res.json();
+                this.renderBlocks(blocks);
+            } catch (e) { console.error('[reactor] load blocks error:', e); }
+        },
+
+        renderBlocks(blocks) {
+            const container = document.getElementById('reactor-blocks-container');
+            if (!blocks || blocks.length === 0) {
+                container.innerHTML = '<div class="info-section"><span class="info-value">No reactions configured. Click "+ Add Reaction" to create one.</span></div>';
+                this.blocksMap = {};
+                return;
+            }
+
+            this.blocksMap = {};
+            blocks.forEach(b => { this.blocksMap[b.id] = b; });
+
+            container.innerHTML = blocks.map(b => {
+                const conditions = b.trigger.conditions.map(c => {
+                    let s = `<code>${this.esc(c.topicPattern)}</code>`;
+                    if (c.payloadRegex) s += ` (payload: <code>${this.esc(c.payloadRegex)}</code>)`;
+                    if (c.mode === 'on_change') s += ' <b style="color:#facc15;">[on change]</b>';
+                    return s;
+                }).join(` <b>${b.trigger.operator}</b> `);
+
+                const pipeline = (b.actions || []).map((a, i) => {
+                    const num = i + 1;
+                    if (a.type === 'mqtt') return `${num}. <b>MQTT</b> → <code>${this.esc(a.mqtt?.topic || '')}</code>`;
+                    if (a.type === 'http') return `${num}. <b>HTTP</b> ${a.http?.method || ''} <code>${this.esc(a.http?.url || '')}</code>`;
+                    if (a.type === 'delay') return `${num}. <b>Delay</b> ${a.delay?.seconds || 0}s`;
+                    return `${num}. ${a.type}`;
+                }).join('<br>');
+
+                return `
+                    <div class="block-card ${b.enabled ? '' : 'disabled'}">
+                        <div class="block-header">
+                            <span class="block-name">${this.esc(b.name)}</span>
+                            <div class="block-actions">
+                                <label class="toggle-label" style="margin: 0;">
+                                    <input type="checkbox" ${b.enabled ? 'checked' : ''} data-block-id="${b.id}" class="rc-toggle-cb">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon rc-test-btn" title="Test" data-block-id="${b.id}">&#9654;</button>
+                                <button class="btn-icon rc-edit-btn" title="Edit" data-block-id="${b.id}">&#9998;</button>
+                                <button class="btn-icon danger rc-delete-btn" title="Delete" data-block-id="${b.id}">&#10005;</button>
+                            </div>
+                        </div>
+                        <div class="block-detail">Trigger: ${conditions}</div>
+                        <div class="block-detail" style="margin-top: 6px;">${pipeline}</div>
+                    </div>`;
+            }).join('');
+
+            container.querySelectorAll('.rc-toggle-cb').forEach(cb => {
+                cb.addEventListener('change', (e) => this.toggleBlock(e.target.dataset.blockId, e.target.checked));
+            });
+            container.querySelectorAll('.rc-test-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => this.testBlock(e.currentTarget.dataset.blockId));
+            });
+            container.querySelectorAll('.rc-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const block = this.blocksMap[e.currentTarget.dataset.blockId];
+                    if (block) this.openModal(block);
+                });
+            });
+            container.querySelectorAll('.rc-delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => this.deleteBlock(e.currentTarget.dataset.blockId));
+            });
+        },
+
+        esc(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; },
+
+        openModal(block) {
+            const $ = id => document.getElementById(id);
+            $('reactor-modal-title').textContent = block ? 'Edit Reaction' : 'Add Reaction';
+            $('reactor-block-name').value = block ? block.name : '';
+            $('reactor-operator').value = block ? block.trigger.operator : 'OR';
+            this.editingBlockId = block ? block.id : null;
+
+            // Conditions
+            const condList = $('reactor-conditions-list');
+            condList.innerHTML = '';
+            const conditions = block ? block.trigger.conditions : [{ topicPattern: '', payloadRegex: '', mode: 'always' }];
+            conditions.forEach(c => this.addConditionRow(c.topicPattern, c.payloadRegex, c.mode));
+
+            // Actions
+            const actionList = $('reactor-actions-list');
+            actionList.innerHTML = '';
+            if (block && block.actions) {
+                block.actions.forEach(a => this.addActionCard(a.type, a));
+            }
+
+            $('reactor-modal').style.display = 'flex';
+        },
+
+        closeModal() {
+            document.getElementById('reactor-modal').style.display = 'none';
+            this.editingBlockId = null;
+        },
+
+        createInput(cls, placeholder, val, style) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-input ' + cls;
+            input.placeholder = placeholder;
+            input.value = val || '';
+            if (style) input.style.cssText = style;
+            return input;
+        },
+
+        addConditionRow(topic, payload, mode) {
+            const list = document.getElementById('reactor-conditions-list');
+            const row = document.createElement('div');
+            row.className = 'condition-row';
+            row.appendChild(this.createInput('cond-topic', 'Topic regex (e.g. zigbee2mqtt/.*)', topic));
+            row.appendChild(this.createInput('cond-payload', 'Payload regex', payload, 'max-width: 220px;'));
+            const select = document.createElement('select');
+            select.className = 'form-input cond-mode';
+            select.style.cssText = 'width: 120px; flex: none;';
+            select.innerHTML = '<option value="always">Always</option><option value="on_change">On change</option>';
+            select.value = mode || 'always';
+            row.appendChild(select);
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn-icon danger';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.addEventListener('click', () => row.remove());
+            row.appendChild(removeBtn);
+            list.appendChild(row);
+        },
+
+        addActionCard(type, data) {
+            const list = document.getElementById('reactor-actions-list');
+            const card = document.createElement('div');
+            card.className = 'action-card';
+            card.dataset.actionType = type;
+
+            let fieldsHTML = '';
+
+            if (type === 'mqtt') {
+                const mqtt = data?.mqtt || {};
+                fieldsHTML = `
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label>Topic</label>
+                        <input type="text" class="form-input act-mqtt-topic" placeholder="zigbee2mqtt/sirena/set" value="${this.esc(mqtt.topic || '')}">
+                    </div>
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label>Payload</label>
+                        <textarea class="form-input act-mqtt-payload" rows="2" placeholder='{"warning":{"mode":"emergency"}}'>${this.esc(mqtt.payload || '')}</textarea>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>QoS</label>
+                            <select class="form-input act-mqtt-qos" style="width:70px;">
+                                <option value="0" ${mqtt.qos===0?'selected':''}>0</option>
+                                <option value="1" ${(!mqtt.qos||mqtt.qos===1)?'selected':''}>1</option>
+                                <option value="2" ${mqtt.qos===2?'selected':''}>2</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>Retain</label>
+                            <select class="form-input act-mqtt-retain" style="width:70px;">
+                                <option value="false" ${!mqtt.retain?'selected':''}>No</option>
+                                <option value="true" ${mqtt.retain?'selected':''}>Yes</option>
+                            </select>
+                        </div>
+                    </div>`;
+            } else if (type === 'http') {
+                const http = data?.http || {};
+                fieldsHTML = `
+                    <div style="display:flex; gap:8px; margin-bottom:8px;">
+                        <select class="form-input act-http-method" style="width:110px;">
+                            <option value="GET" ${http.method==='GET'?'selected':''}>GET</option>
+                            <option value="POST" ${(!http.method||http.method==='POST')?'selected':''}>POST</option>
+                            <option value="PUT" ${http.method==='PUT'?'selected':''}>PUT</option>
+                            <option value="DELETE" ${http.method==='DELETE'?'selected':''}>DELETE</option>
+                            <option value="PATCH" ${http.method==='PATCH'?'selected':''}>PATCH</option>
+                        </select>
+                        <input type="text" class="form-input act-http-url" placeholder="http://example.com/api" value="${this.esc(http.url || '')}" style="flex:1;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label>Body Type</label>
+                        <select class="form-input act-http-bodytype">
+                            <option value="forward" ${(!http.bodyType||http.bodyType==='forward')?'selected':''}>Forward MQTT payload</option>
+                            <option value="json" ${http.bodyType==='json'?'selected':''}>JSON</option>
+                            <option value="form" ${http.bodyType==='form'?'selected':''}>Form data</option>
+                            <option value="raw" ${http.bodyType==='raw'?'selected':''}>Raw</option>
+                            <option value="none" ${http.bodyType==='none'?'selected':''}>No body</option>
+                        </select>
+                    </div>
+                    <div class="form-group act-http-body-group" style="margin-bottom:8px; ${(!http.bodyType||http.bodyType==='forward'||http.bodyType==='none')?'display:none;':''}">
+                        <label>Body</label>
+                        <textarea class="form-input act-http-body" rows="2">${this.esc(http.body || '')}</textarea>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>Timeout (sec)</label>
+                        <input type="number" class="form-input act-http-timeout" value="${http.timeout || 10}" min="1" max="60" style="width:80px;">
+                    </div>`;
+            } else if (type === 'delay') {
+                const delay = data?.delay || {};
+                fieldsHTML = `
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>Seconds</label>
+                        <input type="number" class="form-input act-delay-seconds" value="${delay.seconds || 10}" min="1" max="3600" style="width:100px;">
+                    </div>`;
+            }
+
+            card.innerHTML = `
+                <div class="action-card-header">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="pipeline-step">#${list.children.length + 1}</span>
+                        <span class="action-type-badge ${type}">${type}</span>
+                    </div>
+                    <div class="action-card-controls">
+                        <button class="btn-icon act-move-up" title="Move up">&#9650;</button>
+                        <button class="btn-icon act-move-down" title="Move down">&#9660;</button>
+                        <button class="btn-icon danger act-remove" title="Remove">&times;</button>
+                    </div>
+                </div>
+                ${fieldsHTML}`;
+
+            // Bind body type toggle for HTTP
+            const bodyTypeSelect = card.querySelector('.act-http-bodytype');
+            if (bodyTypeSelect) {
+                bodyTypeSelect.addEventListener('change', (e) => {
+                    const bodyGroup = card.querySelector('.act-http-body-group');
+                    bodyGroup.style.display = (e.target.value === 'none' || e.target.value === 'forward') ? 'none' : 'block';
+                });
+            }
+
+            card.querySelector('.act-remove').addEventListener('click', () => { card.remove(); this.renumberActions(); });
+            card.querySelector('.act-move-up').addEventListener('click', () => {
+                if (card.previousElementSibling) { list.insertBefore(card, card.previousElementSibling); this.renumberActions(); }
+            });
+            card.querySelector('.act-move-down').addEventListener('click', () => {
+                if (card.nextElementSibling) { list.insertBefore(card.nextElementSibling, card); this.renumberActions(); }
+            });
+
+            list.appendChild(card);
+            this.renumberActions();
+        },
+
+        renumberActions() {
+            document.querySelectorAll('#reactor-actions-list .action-card').forEach((card, i) => {
+                card.querySelector('.pipeline-step').textContent = '#' + (i + 1);
+            });
+        },
+
+        collectActions() {
+            const actions = [];
+            document.querySelectorAll('#reactor-actions-list .action-card').forEach(card => {
+                const type = card.dataset.actionType;
+                const action = { type };
+
+                if (type === 'mqtt') {
+                    action.mqtt = {
+                        topic: card.querySelector('.act-mqtt-topic').value.trim(),
+                        payload: card.querySelector('.act-mqtt-payload').value,
+                        qos: parseInt(card.querySelector('.act-mqtt-qos').value) || 0,
+                        retain: card.querySelector('.act-mqtt-retain').value === 'true'
+                    };
+                } else if (type === 'http') {
+                    action.http = {
+                        method: card.querySelector('.act-http-method').value,
+                        url: card.querySelector('.act-http-url').value.trim(),
+                        bodyType: card.querySelector('.act-http-bodytype').value,
+                        body: card.querySelector('.act-http-body')?.value || '',
+                        timeout: parseInt(card.querySelector('.act-http-timeout').value) || 10,
+                        headers: {}
+                    };
+                } else if (type === 'delay') {
+                    action.delay = {
+                        seconds: parseInt(card.querySelector('.act-delay-seconds').value) || 10
+                    };
+                }
+
+                actions.push(action);
+            });
+            return actions;
+        },
+
+        async saveBlock() {
+            const $ = id => document.getElementById(id);
+
+            const condRows = $('reactor-conditions-list').querySelectorAll('.condition-row');
+            const conditions = [];
+            condRows.forEach(row => {
+                const topic = row.querySelector('.cond-topic').value.trim();
+                if (topic) {
+                    conditions.push({
+                        topicPattern: topic,
+                        payloadRegex: row.querySelector('.cond-payload').value.trim(),
+                        mode: row.querySelector('.cond-mode').value
+                    });
+                }
+            });
+
+            if (conditions.length === 0) { this.showError('At least one trigger condition is required'); return; }
+
+            const actions = this.collectActions();
+            if (actions.length === 0) { this.showError('At least one action is required'); return; }
+
+            const block = {
+                id: this.editingBlockId || '',
+                name: $('reactor-block-name').value.trim(),
+                enabled: true,
+                trigger: { conditions, operator: $('reactor-operator').value },
+                actions
+            };
+
+            if (!block.name) { this.showError('Name is required'); return; }
+
+            const isEdit = !!this.editingBlockId;
+
+            try {
+                const res = await fetch(API + '/blocks', {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify(block)
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to save');
+                }
+                this.closeModal();
+                this.loadBlocks();
+                this.loadStatus();
+                this.showSuccess(isEdit ? 'Reaction updated' : 'Reaction created');
+            } catch (e) { this.showError(e.message); }
+        },
+
+        async toggleBlock(id, enabled) {
+            try {
+                await fetch(API + '/blocks/toggle', { method: 'POST', headers: this.authHeaders(), body: JSON.stringify({ id, enabled }) });
+                this.loadBlocks(); this.loadStatus();
+            } catch (e) { this.showError('Failed to toggle'); }
+        },
+
+        async deleteBlock(id) {
+            if (!confirm('Delete this reaction?')) return;
+            try {
+                await fetch(API + '/blocks', { method: 'DELETE', headers: this.authHeaders(), body: JSON.stringify({ id }) });
+                this.loadBlocks(); this.loadStatus();
+                this.showSuccess('Reaction deleted');
+            } catch (e) { this.showError('Failed to delete'); }
+        },
+
+        async testBlock(id) {
+            try {
+                await fetch(API + '/blocks/test', { method: 'POST', headers: this.authHeaders(), body: JSON.stringify({ id }) });
+                this.showSuccess('Test triggered — check logs');
+                setTimeout(() => this.loadLogs(), 2000);
+            } catch (e) { this.showError('Failed to test'); }
+        },
+
+        async loadLogs() {
+            try {
+                const res = await fetch(API + '/logs', { headers: this.authHeaders() });
+                const logs = await res.json();
+                this.renderLogs(logs);
+            } catch (e) { console.error('[reactor] logs error:', e); }
+        },
+
+        renderLogs(logs) {
+            const container = document.getElementById('reactor-logs-container');
+            if (!logs || logs.length === 0) {
+                container.innerHTML = '<span class="info-value">No logs yet</span>';
+                return;
+            }
+            container.innerHTML = logs.slice(0, 50).map(l => {
+                const isErr = l.error || l.statusCode >= 400;
+                const statusText = l.error ? 'ERR' : l.statusCode;
+                const time = new Date(l.timestamp).toLocaleTimeString();
+                const badge = `<span class="action-type-badge ${l.actionType}" style="font-size:0.7em;">${l.actionType}</span>`;
+                return `
+                    <div class="log-entry">
+                        <span class="log-status ${isErr ? 'error' : 'success'}">${statusText}</span>
+                        ${badge}
+                        <span><b>${this.esc(l.blockName)}</b> [#${l.actionIndex + 1}]</span>
+                        <span style="color: var(--text-secondary);">${this.esc(l.triggerTopic)}</span>
+                        <span style="color: var(--text-secondary);">${l.durationMs}ms</span>
+                        <span style="color: var(--text-secondary);">${time}</span>
+                        ${l.error ? `<span style="color: #f87171; width: 100%;">${this.esc(l.error)}</span>` : ''}
+                    </div>`;
+            }).join('');
+        },
+
+        showSuccess(msg) { if (typeof showToast === 'function') showToast(msg, 'success'); else console.log('[reactor]', msg); },
+        showError(msg) { if (typeof showToast === 'function') showToast(msg, 'error'); else console.error('[reactor]', msg); }
+    };
+
+    const page = document.getElementById('page-plugin-reactor');
+    if (page) {
+        page.addEventListener('plugin-page-shown', () => RC.init());
+        page.addEventListener('plugin-page-hidden', () => RC.cleanup());
+        if (!page.classList.contains('hidden')) RC.init();
+    }
+})();
+</script>

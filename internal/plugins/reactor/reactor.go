@@ -1,5 +1,5 @@
-// Package mqtt2http provides a plugin that listens to MQTT topics and triggers HTTP requests
-package mqtt2http
+// Package reactor provides a plugin that listens to MQTT topics and executes action pipelines
+package reactor
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ import (
 var htmlContent []byte
 
 const (
-	pluginName    = "mqtt2http"
+	pluginName    = "reactor"
 	storageKey    = "blocks"
 	maxLogEntries = 100
 )
@@ -35,30 +35,30 @@ type condStateKey struct {
 	topic     string
 }
 
-// Plugin listens to MQTT topics and triggers HTTP requests
+// Plugin listens to MQTT topics and executes action pipelines
 type Plugin struct {
 	*plugins.BasePlugin
 	mu             sync.RWMutex
-	blocks         []HookBlock
+	blocks         []ReactionBlock
 	logs           []ExecutionLog
 	httpClient     *http.Client
-	compiledRegex  map[string]*regexp.Regexp // cache: pattern -> compiled regex
-	prevMatchState map[condStateKey]bool     // previous payload match state for edge triggers
-	subscribed     bool                      // whether we have an active MQTT subscription
+	compiledRegex  map[string]*regexp.Regexp
+	prevMatchState map[condStateKey]bool
+	subscribed     bool
 	backgroundCtx  context.Context
 	backgroundStop context.CancelFunc
 }
 
-// New creates a new mqtt2http plugin instance
+// New creates a new reactor plugin instance
 func New() *Plugin {
 	return &Plugin{
 		BasePlugin: plugins.NewBasePlugin(
 			pluginName,
-			"MQTT to HTTP trigger",
-			"1.0.0",
+			"MQTT Reactor",
+			"2.0.0",
 			htmlContent,
 		),
-		blocks:         []HookBlock{},
+		blocks:         []ReactionBlock{},
 		logs:           make([]ExecutionLog, 0, maxLogEntries),
 		compiledRegex:  make(map[string]*regexp.Regexp),
 		prevMatchState: make(map[condStateKey]bool),
@@ -119,14 +119,14 @@ func (p *Plugin) IsEnabled() bool {
 // Routes returns HTTP routes for the plugin API
 func (p *Plugin) Routes() []plugins.Route {
 	return []plugins.Route{
-		{Method: "GET", Path: "/api/plugins/mqtt2http/blocks", Handler: p.handleGetBlocks, RequireAuth: true},
-		{Method: "POST", Path: "/api/plugins/mqtt2http/blocks", Handler: p.handleCreateBlock, RequireAuth: true},
-		{Method: "PUT", Path: "/api/plugins/mqtt2http/blocks", Handler: p.handleUpdateBlock, RequireAuth: true},
-		{Method: "DELETE", Path: "/api/plugins/mqtt2http/blocks", Handler: p.handleDeleteBlock, RequireAuth: true},
-		{Method: "POST", Path: "/api/plugins/mqtt2http/blocks/toggle", Handler: p.handleToggleBlock, RequireAuth: true},
-		{Method: "POST", Path: "/api/plugins/mqtt2http/blocks/test", Handler: p.handleTestBlock, RequireAuth: true},
-		{Method: "GET", Path: "/api/plugins/mqtt2http/logs", Handler: p.handleGetLogs, RequireAuth: true},
-		{Method: "GET", Path: "/api/plugins/mqtt2http/status", Handler: p.handleGetStatus, RequireAuth: true},
+		{Method: "GET", Path: "/api/plugins/reactor/blocks", Handler: p.handleGetBlocks, RequireAuth: true},
+		{Method: "POST", Path: "/api/plugins/reactor/blocks", Handler: p.handleCreateBlock, RequireAuth: true},
+		{Method: "PUT", Path: "/api/plugins/reactor/blocks", Handler: p.handleUpdateBlock, RequireAuth: true},
+		{Method: "DELETE", Path: "/api/plugins/reactor/blocks", Handler: p.handleDeleteBlock, RequireAuth: true},
+		{Method: "POST", Path: "/api/plugins/reactor/blocks/toggle", Handler: p.handleToggleBlock, RequireAuth: true},
+		{Method: "POST", Path: "/api/plugins/reactor/blocks/test", Handler: p.handleTestBlock, RequireAuth: true},
+		{Method: "GET", Path: "/api/plugins/reactor/logs", Handler: p.handleGetLogs, RequireAuth: true},
+		{Method: "GET", Path: "/api/plugins/reactor/status", Handler: p.handleGetStatus, RequireAuth: true},
 	}
 }
 
@@ -171,8 +171,6 @@ func (p *Plugin) resubscribe() error {
 		}
 	}
 
-	// Subscribe to all topics via wildcard "#"
-	// We filter by regex on our side
 	if err := deps.MQTTClient.SubscribeRaw("#", 1, p.onMessage); err != nil {
 		return fmt.Errorf("failed to subscribe to #: %w", err)
 	}
@@ -208,7 +206,7 @@ func (p *Plugin) unsubscribeAll() {
 // onMessage handles incoming MQTT messages
 func (p *Plugin) onMessage(topic string, payload []byte) {
 	p.mu.RLock()
-	blocks := make([]HookBlock, len(p.blocks))
+	blocks := make([]ReactionBlock, len(p.blocks))
 	copy(blocks, p.blocks)
 	p.mu.RUnlock()
 
@@ -217,18 +215,13 @@ func (p *Plugin) onMessage(topic string, payload []byte) {
 			continue
 		}
 		if p.shouldTrigger(block, topic, payload) {
-			switch block.ActionType {
-			case ActionMQTT:
-				go p.executeMQTTAction(block, topic, payload)
-			default:
-				go p.executeAction(block, topic, payload)
-			}
+			go p.executePipeline(block, topic, payload)
 		}
 	}
 }
 
 // shouldTrigger checks if a block's conditions are met
-func (p *Plugin) shouldTrigger(block HookBlock, topic string, payload []byte) bool {
+func (p *Plugin) shouldTrigger(block ReactionBlock, topic string, payload []byte) bool {
 	if len(block.Trigger.Conditions) == 0 {
 		return false
 	}
@@ -244,21 +237,16 @@ func (p *Plugin) shouldTrigger(block HookBlock, topic string, payload []byte) bo
 		}
 	}
 
-	// AND: all matched; OR: none matched
 	return block.Trigger.Operator == OperatorAND
 }
 
-// evalCondition evaluates a condition with edge trigger support.
-// For mode "on_change": returns true only on transition from non-match to match.
-// For mode "always" (default): returns true on every match.
+// evalCondition evaluates a condition with edge trigger support
 func (p *Plugin) evalCondition(blockID string, condIndex int, cond TriggerCondition, topic string, payload []byte) bool {
-	// First check if topic matches
 	topicRe := p.getRegex(cond.TopicPattern)
 	if topicRe == nil || !topicRe.MatchString(topic) {
 		return false
 	}
 
-	// Check payload match (true if no payload regex specified)
 	payloadMatches := true
 	if cond.PayloadRegex != "" {
 		payloadRe := p.getRegex(cond.PayloadRegex)
@@ -267,12 +255,10 @@ func (p *Plugin) evalCondition(blockID string, condIndex int, cond TriggerCondit
 		}
 	}
 
-	// For "always" mode (or empty/default), just return the match result
 	if cond.Mode == "" || cond.Mode == TriggerAlways {
 		return payloadMatches
 	}
 
-	// Edge trigger ("on_change"): fire only on transition false → true
 	key := condStateKey{blockID: blockID, condIndex: condIndex, topic: topic}
 
 	p.mu.Lock()
@@ -280,7 +266,6 @@ func (p *Plugin) evalCondition(blockID string, condIndex int, cond TriggerCondit
 	p.prevMatchState[key] = payloadMatches
 	p.mu.Unlock()
 
-	// Trigger only when state transitions from false to true
 	return payloadMatches && !prev
 }
 
@@ -312,20 +297,11 @@ func (p *Plugin) getRegex(pattern string) *regexp.Regexp {
 // templateVarRe matches template variables like {{topic}}, {{payload.field}}, {{timestamp}}
 var templateVarRe = regexp.MustCompile(`\{\{(\w+(?:\.\w+)*)\}\}`)
 
-// renderTemplate replaces template variables in a string with actual values.
-// Supported variables:
-//   - {{topic}}       — full MQTT topic
-//   - {{topic_name}}  — last segment of topic (after last /)
-//   - {{payload}}     — entire MQTT payload as string
-//   - {{payload.X}}   — value of field X from JSON payload (top-level only)
-//   - {{timestamp}}   — Unix timestamp in milliseconds
-//   - {{timestamp_s}} — Unix timestamp in seconds
+// renderTemplate replaces template variables in a string with actual values
 func renderTemplate(tmpl string, topic string, payload []byte) string {
-	// Parse payload JSON once (best-effort, may be non-JSON)
 	var payloadMap map[string]json.RawMessage
 	json.Unmarshal(payload, &payloadMap)
 
-	// Extract topic name (last segment)
 	topicName := topic
 	if idx := strings.LastIndex(topic, "/"); idx >= 0 && idx < len(topic)-1 {
 		topicName = topic[idx+1:]
@@ -334,7 +310,6 @@ func renderTemplate(tmpl string, topic string, payload []byte) string {
 	now := time.Now()
 
 	return templateVarRe.ReplaceAllStringFunc(tmpl, func(match string) string {
-		// Strip {{ and }}
 		varName := match[2 : len(match)-2]
 
 		switch varName {
@@ -349,12 +324,10 @@ func renderTemplate(tmpl string, topic string, payload []byte) string {
 		case "timestamp_s":
 			return strconv.FormatInt(now.Unix(), 10)
 		default:
-			// Check for payload.field
 			if strings.HasPrefix(varName, "payload.") {
-				field := varName[8:] // after "payload."
+				field := varName[8:]
 				if payloadMap != nil {
 					if raw, ok := payloadMap[field]; ok {
-						// Unquote strings, return raw for numbers/bools
 						var s string
 						if json.Unmarshal(raw, &s) == nil {
 							return s
@@ -363,175 +336,148 @@ func renderTemplate(tmpl string, topic string, payload []byte) string {
 					}
 				}
 			}
-			return match // leave unknown variables as-is
+			return match
 		}
 	})
 }
 
-// executeAction performs the HTTP request for a triggered block
-func (p *Plugin) executeAction(block HookBlock, triggerTopic string, mqttPayload []byte) {
-	start := time.Now()
-	logEntry := ExecutionLog{
-		BlockID:      block.ID,
-		BlockName:    block.Name,
-		Timestamp:    start,
-		TriggerTopic: triggerTopic,
+// executePipeline runs the action pipeline sequentially
+func (p *Plugin) executePipeline(block ReactionBlock, triggerTopic string, mqttPayload []byte) {
+	if p.Logger() != nil {
+		p.Logger().Printf("[%s] Block '%s' triggered by '%s', executing %d actions",
+			p.Name(), block.Name, triggerTopic, len(block.Actions))
 	}
 
-	timeout := time.Duration(block.Action.Timeout) * time.Second
+	for i, action := range block.Actions {
+		var err error
+		var statusCode int
+		start := time.Now()
+
+		switch action.Type {
+		case ActionHTTP:
+			statusCode, err = p.executeHTTP(action.HTTP, triggerTopic, mqttPayload)
+		case ActionMQTT:
+			err = p.executeMQTT(action.MQTT, triggerTopic, mqttPayload)
+			if err == nil {
+				statusCode = 200
+			}
+		case ActionDelay:
+			p.executeDelay(action.Delay)
+			statusCode = 200
+		default:
+			err = fmt.Errorf("unknown action type: %s", action.Type)
+		}
+
+		logEntry := ExecutionLog{
+			BlockID:      block.ID,
+			BlockName:    block.Name,
+			ActionIndex:  i,
+			ActionType:   string(action.Type),
+			Timestamp:    start,
+			TriggerTopic: triggerTopic,
+			StatusCode:   statusCode,
+			DurationMs:   time.Since(start).Milliseconds(),
+		}
+
+		if err != nil {
+			logEntry.Error = err.Error()
+			p.addLog(logEntry)
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Block '%s' action[%d] (%s) failed: %v",
+					p.Name(), block.Name, i, action.Type, err)
+			}
+			return // stop pipeline on error
+		}
+
+		p.addLog(logEntry)
+	}
+}
+
+// executeHTTP performs an HTTP request
+func (p *Plugin) executeHTTP(cfg *HTTPActionConfig, triggerTopic string, mqttPayload []byte) (int, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("HTTP action config is nil")
+	}
+
+	timeout := time.Duration(cfg.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 
-	// Build request body with template rendering
 	var bodyReader io.Reader
 	contentType := ""
 
-	switch block.Action.BodyType {
+	switch cfg.BodyType {
 	case BodyForward:
 		bodyReader = bytes.NewReader(mqttPayload)
 		contentType = "application/json"
 	case BodyJSON:
-		bodyReader = strings.NewReader(renderTemplate(block.Action.Body, triggerTopic, mqttPayload))
+		bodyReader = strings.NewReader(renderTemplate(cfg.Body, triggerTopic, mqttPayload))
 		contentType = "application/json"
 	case BodyForm:
-		bodyReader = strings.NewReader(renderTemplate(block.Action.Body, triggerTopic, mqttPayload))
+		bodyReader = strings.NewReader(renderTemplate(cfg.Body, triggerTopic, mqttPayload))
 		contentType = "application/x-www-form-urlencoded"
 	case BodyRaw:
-		bodyReader = strings.NewReader(renderTemplate(block.Action.Body, triggerTopic, mqttPayload))
+		bodyReader = strings.NewReader(renderTemplate(cfg.Body, triggerTopic, mqttPayload))
 		contentType = "text/plain"
 	case BodyNone:
 		bodyReader = nil
 	}
 
-	// Render template variables in URL too
-	reqURL := renderTemplate(block.Action.URL, triggerTopic, mqttPayload)
+	reqURL := renderTemplate(cfg.URL, triggerTopic, mqttPayload)
 	if _, err := url.ParseRequestURI(reqURL); err != nil {
-		logEntry.Error = fmt.Sprintf("invalid URL: %v", err)
-		logEntry.DurationMs = time.Since(start).Milliseconds()
-		p.addLog(logEntry)
-		return
+		return 0, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	req, err := http.NewRequest(string(block.Action.Method), reqURL, bodyReader)
+	req, err := http.NewRequest(string(cfg.Method), reqURL, bodyReader)
 	if err != nil {
-		logEntry.Error = fmt.Sprintf("failed to create request: %v", err)
-		logEntry.DurationMs = time.Since(start).Milliseconds()
-		p.addLog(logEntry)
-		return
+		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	for k, v := range block.Action.Headers {
+	for k, v := range cfg.Headers {
 		req.Header.Set(k, v)
 	}
 
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
-	logEntry.DurationMs = time.Since(start).Milliseconds()
-
 	if err != nil {
-		logEntry.Error = err.Error()
-		p.addLog(logEntry)
-		if p.Logger() != nil {
-			p.Logger().Printf("[%s] Block '%s' HTTP error: %v", p.Name(), block.Name, err)
-		}
-		return
+		return 0, err
 	}
 	defer resp.Body.Close()
 
-	logEntry.StatusCode = resp.StatusCode
-	p.addLog(logEntry)
-
-	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Block '%s' triggered by '%s' -> %s %s = %d (%dms)",
-			p.Name(), block.Name, triggerTopic,
-			block.Action.Method, block.Action.URL, resp.StatusCode, logEntry.DurationMs)
-	}
+	return resp.StatusCode, nil
 }
 
-// executeMQTTAction publishes an MQTT message for a triggered block
-func (p *Plugin) executeMQTTAction(block HookBlock, triggerTopic string, mqttPayload []byte) {
-	start := time.Now()
-	logEntry := ExecutionLog{
-		BlockID:      block.ID,
-		BlockName:    block.Name,
-		Timestamp:    start,
-		TriggerTopic: triggerTopic,
+// executeMQTT publishes an MQTT message
+func (p *Plugin) executeMQTT(cfg *MQTTActionConfig, triggerTopic string, mqttPayload []byte) error {
+	if cfg == nil {
+		return fmt.Errorf("MQTT action config is nil")
 	}
 
 	deps := p.Deps()
 	if deps == nil || deps.MQTTClient == nil {
-		logEntry.Error = "MQTT client not available"
-		logEntry.DurationMs = time.Since(start).Milliseconds()
-		p.addLog(logEntry)
-		return
+		return fmt.Errorf("MQTT client not available")
 	}
 
 	if !deps.MQTTClient.IsConnected() {
-		logEntry.Error = "MQTT client not connected"
-		logEntry.DurationMs = time.Since(start).Milliseconds()
-		p.addLog(logEntry)
+		return fmt.Errorf("MQTT client not connected")
+	}
+
+	targetTopic := renderTemplate(cfg.Topic, triggerTopic, mqttPayload)
+	payload := renderTemplate(cfg.Payload, triggerTopic, mqttPayload)
+
+	return deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), cfg.Retain)
+}
+
+// executeDelay pauses execution for the specified duration
+func (p *Plugin) executeDelay(cfg *DelayActionConfig) {
+	if cfg == nil || cfg.Seconds <= 0 {
 		return
 	}
-
-	targetTopic := renderTemplate(block.MQTTAction.Topic, triggerTopic, mqttPayload)
-	payload := renderTemplate(block.MQTTAction.Payload, triggerTopic, mqttPayload)
-
-	var err error
-	if block.MQTTAction.QoS > 0 || block.MQTTAction.Retain {
-		err = deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), block.MQTTAction.Retain)
-	} else {
-		err = deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), false)
-	}
-
-	logEntry.DurationMs = time.Since(start).Milliseconds()
-
-	if err != nil {
-		logEntry.Error = err.Error()
-		p.addLog(logEntry)
-		if p.Logger() != nil {
-			p.Logger().Printf("[%s] Block '%s' MQTT publish error: %v", p.Name(), block.Name, err)
-		}
-		return
-	}
-
-	logEntry.StatusCode = 200 // virtual "OK" status for MQTT publish
-	p.addLog(logEntry)
-
-	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Block '%s' triggered by '%s' -> MQTT publish to '%s' (%dms)",
-			p.Name(), block.Name, triggerTopic, targetTopic, logEntry.DurationMs)
-	}
-
-	// Auto-off: send stop payload after delay
-	if block.MQTTAction.AutoOffDelay > 0 && block.MQTTAction.AutoOffPayload != "" {
-		go func() {
-			time.Sleep(time.Duration(block.MQTTAction.AutoOffDelay) * time.Second)
-
-			offPayload := renderTemplate(block.MQTTAction.AutoOffPayload, triggerTopic, mqttPayload)
-			offErr := deps.MQTTClient.PublishRaw(targetTopic, []byte(offPayload), block.MQTTAction.Retain)
-
-			offLog := ExecutionLog{
-				BlockID:      block.ID,
-				BlockName:    block.Name + " [auto-off]",
-				Timestamp:    time.Now(),
-				TriggerTopic: triggerTopic,
-				StatusCode:   200,
-			}
-			if offErr != nil {
-				offLog.Error = offErr.Error()
-				offLog.StatusCode = 0
-			}
-			p.addLog(offLog)
-
-			if p.Logger() != nil {
-				p.Logger().Printf("[%s] Block '%s' auto-off sent to '%s'", p.Name(), block.Name, targetTopic)
-			}
-		}()
-	}
+	time.Sleep(time.Duration(cfg.Seconds) * time.Second)
 }
 
 // addLog appends a log entry, maintaining max size
@@ -545,14 +491,14 @@ func (p *Plugin) addLog(entry ExecutionLog) {
 	}
 }
 
-// loadBlocks loads hook blocks from storage
+// loadBlocks loads blocks from storage
 func (p *Plugin) loadBlocks() {
 	deps := p.Deps()
 	if deps == nil || deps.Storage == nil {
 		return
 	}
 
-	var blocks []HookBlock
+	var blocks []ReactionBlock
 	err := deps.Storage.GetJSON(p.Name(), storageKey, &blocks)
 	if err != nil {
 		return
@@ -563,7 +509,7 @@ func (p *Plugin) loadBlocks() {
 	p.mu.Unlock()
 }
 
-// saveBlocks persists hook blocks to storage
+// saveBlocks persists blocks to storage
 func (p *Plugin) saveBlocks() error {
 	deps := p.Deps()
 	if deps == nil || deps.Storage == nil {
@@ -571,7 +517,7 @@ func (p *Plugin) saveBlocks() error {
 	}
 
 	p.mu.RLock()
-	blocks := make([]HookBlock, len(p.blocks))
+	blocks := make([]ReactionBlock, len(p.blocks))
 	copy(blocks, p.blocks)
 	p.mu.RUnlock()
 
@@ -586,7 +532,7 @@ func (p *Plugin) invalidateCaches() {
 	p.mu.Unlock()
 }
 
-// generateID creates a new unique block ID using timestamp + random
+// generateID creates a new unique block ID
 func generateID() string {
 	return fmt.Sprintf("%x", time.Now().UnixNano())[4:12]
 }
