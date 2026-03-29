@@ -3,6 +3,7 @@ package temperature
 
 import (
 	"context"
+	_ "embed"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,17 +18,20 @@ import (
 	"podmanview/internal/storage"
 )
 
+//go:embed index.html
+var htmlContent []byte
+
 // TemperaturePlugin monitors system temperatures
 type TemperaturePlugin struct {
 	*plugins.BasePlugin
-	mu                sync.RWMutex
-	cachedData        *TemperatureData
-	lastUpdate        time.Time
-	updatePeriod      time.Duration
-	backgroundCtx     context.Context
-	backgroundCancel  context.CancelFunc
-	bgMutex           sync.Mutex
-	mqttEnabled       bool // MQTT publishing enabled flag
+	mu               sync.RWMutex
+	cachedData       *TemperatureData
+	lastUpdate       time.Time
+	updatePeriod     time.Duration
+	backgroundCtx    context.Context
+	backgroundCancel context.CancelFunc
+	bgMutex          sync.Mutex
+	mqttEnabled      bool // MQTT publishing enabled flag
 }
 
 // Temperature represents a temperature sensor reading
@@ -50,15 +54,12 @@ type TemperatureData struct {
 
 // New creates a new TemperaturePlugin instance
 func New() *TemperaturePlugin {
-	// Get the path to the HTML file relative to this plugin's directory
-	htmlPath := filepath.Join("internal", "plugins", "temperature", "index.html")
-
 	return &TemperaturePlugin{
 		BasePlugin: plugins.NewBasePlugin(
 			"temperature",
 			"System temperature monitoring",
 			"1.0.0",
-			htmlPath,
+			htmlContent,
 		),
 		updatePeriod: 15 * time.Second, // Update every 15 seconds
 		cachedData: &TemperatureData{

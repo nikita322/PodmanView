@@ -4,12 +4,12 @@ package mqtt2http
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +18,9 @@ import (
 
 	"podmanview/internal/plugins"
 )
+
+//go:embed index.html
+var htmlContent []byte
 
 const (
 	pluginName    = "mqtt2http"
@@ -48,14 +51,12 @@ type Plugin struct {
 
 // New creates a new mqtt2http plugin instance
 func New() *Plugin {
-	htmlPath := filepath.Join("internal", "plugins", "mqtt2http", "index.html")
-
 	return &Plugin{
 		BasePlugin: plugins.NewBasePlugin(
 			pluginName,
 			"MQTT to HTTP trigger",
 			"1.0.0",
-			htmlPath,
+			htmlContent,
 		),
 		blocks:         []HookBlock{},
 		logs:           make([]ExecutionLog, 0, maxLogEntries),

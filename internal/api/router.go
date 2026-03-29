@@ -13,10 +13,11 @@ import (
 	"podmanview/internal/auth"
 	"podmanview/internal/config"
 	"podmanview/internal/events"
-	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
+	"podmanview/internal/podman"
 	"podmanview/internal/storage"
 	"podmanview/internal/updater"
+	"podmanview/web/templates"
 )
 
 // Server represents the API server
@@ -106,7 +107,7 @@ func (s *Server) setupRoutes() {
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
-	fileManagerHandler := NewFileManagerHandler(s.eventStore, "")  // Empty baseDir means use home dir
+	fileManagerHandler := NewFileManagerHandler(s.eventStore, "") // Empty baseDir means use home dir
 	pluginHandler := NewPluginHandler(s)
 
 	// Public routes
@@ -245,16 +246,8 @@ func (s *Server) registerPluginRoutes(r chi.Router) {
 
 // serveIndex serves the main HTML page with version placeholders replaced
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
-	// Read the template file
-	content, err := os.ReadFile("web/templates/index.html")
-	if err != nil {
-		http.Error(w, "Failed to load page", http.StatusInternalServerError)
-		log.Printf("Error reading index.html: %v", err)
-		return
-	}
-
-	// Replace placeholders
-	html := string(content)
+	// Replace placeholders in embedded template
+	html := string(templates.IndexHTML)
 	html = strings.ReplaceAll(html, "{{VERSION}}", s.version)
 	html = strings.ReplaceAll(html, "{{STATIC_VERSION}}", s.staticVersion)
 

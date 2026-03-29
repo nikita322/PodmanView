@@ -3,6 +3,7 @@ package led
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	"podmanview/internal/plugins"
 	"podmanview/internal/storage"
 )
+
+//go:embed index.html
+var htmlContent []byte
 
 const (
 	ledsPath = "/sys/class/leds"
@@ -28,18 +32,18 @@ const (
 
 // LEDInfo represents information about a single LED
 type LEDInfo struct {
-	Name      string `json:"name"`      // LED name (e.g., "led0")
-	Path      string `json:"path"`      // Full path to LED directory
+	Name       string `json:"name"`       // LED name (e.g., "led0")
+	Path       string `json:"path"`       // Full path to LED directory
 	Brightness int    `json:"brightness"` // Current brightness (0 or 1)
 }
 
 // LEDState represents the current state of all LEDs
 type LEDState struct {
-	Status         LEDStatus `json:"status"`         // Current status (enabled/disabled)
-	TotalLEDs      int       `json:"totalLeds"`      // Total number of LEDs found
-	EnabledCount   int       `json:"enabledCount"`   // Number of enabled LEDs
-	DisabledCount  int       `json:"disabledCount"`  // Number of disabled LEDs
-	LastUpdate     time.Time `json:"lastUpdate"`     // Last state update time
+	Status        LEDStatus `json:"status"`        // Current status (enabled/disabled)
+	TotalLEDs     int       `json:"totalLeds"`     // Total number of LEDs found
+	EnabledCount  int       `json:"enabledCount"`  // Number of enabled LEDs
+	DisabledCount int       `json:"disabledCount"` // Number of disabled LEDs
+	LastUpdate    time.Time `json:"lastUpdate"`    // Last state update time
 }
 
 // Settings represents plugin settings
@@ -58,14 +62,12 @@ type LEDPlugin struct {
 
 // New creates a new LEDPlugin instance
 func New() *LEDPlugin {
-	htmlPath := filepath.Join("internal", "plugins", "led", "index.html")
-
 	return &LEDPlugin{
 		BasePlugin: plugins.NewBasePlugin(
 			"led",
 			"LED control and management",
 			"1.0.0",
-			htmlPath,
+			htmlContent,
 		),
 		state: &LEDState{
 			Status:     LEDStatusEnabled,

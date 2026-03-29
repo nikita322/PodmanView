@@ -18,7 +18,6 @@ import (
 	"podmanview/internal/logger"
 	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
-	"podmanview/internal/plugins/demo"
 	"podmanview/internal/plugins/led"
 	"podmanview/internal/plugins/mqtt2http"
 	"podmanview/internal/plugins/temperature"
@@ -94,19 +93,6 @@ func main() {
 	defer pluginStorage.Close()
 
 	// Initialize default plugin configurations if not present
-	// Check if demo plugin exists in storage
-	_, err = pluginStorage.GetPluginConfig("demo")
-	if err == storage.ErrPluginNotFound {
-		// Set default configuration for demo plugin
-		appLogger.Printf("Initializing default configuration for demo plugin")
-		if err := pluginStorage.SetPluginConfig("demo", &storage.PluginConfig{
-			Enabled: true,
-			Name:    "Demo Plugin",
-		}); err != nil {
-			appLogger.Printf("Warning: Failed to set default demo plugin config: %v", err)
-		}
-	}
-
 	// Check if temperature plugin exists in storage
 	_, err = pluginStorage.GetPluginConfig("temperature")
 	if err == storage.ErrPluginNotFound {
@@ -178,10 +164,6 @@ func main() {
 
 	// Register all available plugins
 	// Add your plugins here
-	if err := pluginRegistry.Register(demo.New()); err != nil {
-		appLogger.Fatalf("Failed to register demo plugin: %v", err)
-	}
-
 	if err := pluginRegistry.Register(temperature.New()); err != nil {
 		appLogger.Fatalf("Failed to register temperature plugin: %v", err)
 	}

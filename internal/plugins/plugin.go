@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"podmanview/internal/config"
@@ -125,16 +124,16 @@ type BasePlugin struct {
 	version     string
 	deps        *PluginDependencies
 	logger      *log.Logger
-	htmlPath    string // Path to the plugin's HTML file
+	htmlContent []byte // Embedded HTML content
 }
 
 // NewBasePlugin creates a new BasePlugin
-func NewBasePlugin(name, description, version, htmlPath string) *BasePlugin {
+func NewBasePlugin(name, description, version string, htmlContent []byte) *BasePlugin {
 	return &BasePlugin{
 		name:        name,
 		description: description,
 		version:     version,
-		htmlPath:    htmlPath,
+		htmlContent: htmlContent,
 	}
 }
 
@@ -176,18 +175,12 @@ func (p *BasePlugin) LogError(format string, v ...interface{}) {
 	}
 }
 
-
 // GetHTML returns the plugin's HTML interface
 func (p *BasePlugin) GetHTML() (string, error) {
-	if p.htmlPath == "" {
+	if len(p.htmlContent) == 0 {
 		return "", nil
 	}
-	// Read HTML file from the plugin's directory
-	content, err := os.ReadFile(p.htmlPath)
-	if err != nil {
-		return "", err
-	}
-	return string(content), nil
+	return string(p.htmlContent), nil
 }
 
 // WriteJSON is a shared helper function for writing JSON responses
