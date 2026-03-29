@@ -42,6 +42,10 @@ func (p *Plugin) handleCreateBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if block.ActionType == "" {
+		block.ActionType = ActionHTTP
+	}
+
 	if err := validateBlock(block); err != nil {
 		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -75,6 +79,10 @@ func (p *Plugin) handleUpdateBlock(w http.ResponseWriter, r *http.Request) {
 	if block.ID == "" {
 		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Block ID is required"})
 		return
+	}
+
+	if block.ActionType == "" {
+		block.ActionType = ActionHTTP
 	}
 
 	if err := validateBlock(block); err != nil {
@@ -211,7 +219,12 @@ func (p *Plugin) handleTestBlock(w http.ResponseWriter, r *http.Request) {
 
 	// Execute with test payload
 	testPayload := []byte(`{"test": true}`)
-	go p.executeAction(*block, "test/manual", testPayload)
+	switch block.ActionType {
+	case ActionMQTT:
+		go p.executeMQTTAction(*block, "test/manual", testPayload)
+	default:
+		go p.executeAction(*block, "test/manual", testPayload)
+	}
 
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Test triggered"})
 }
@@ -283,13 +296,27 @@ func validateBlock(block HookBlock) error {
 	if block.Trigger.Operator != OperatorAND && block.Trigger.Operator != OperatorOR {
 		return fmt.Errorf("operator must be AND or OR")
 	}
-	if block.Action.URL == "" {
-		return fmt.Errorf("action URL is required")
-	}
-	switch block.Action.Method {
-	case MethodGET, MethodPOST, MethodPUT, MethodDELETE, MethodPATCH:
+
+	switch block.ActionType {
+	case ActionMQTT:
+		if block.MQTTAction.Topic == "" {
+			return fmt.Errorf("MQTT action topic is required")
+		}
+		if block.MQTTAction.QoS > 2 {
+			return fmt.Errorf("MQTT QoS must be 0, 1, or 2")
+		}
+	case ActionHTTP, "":
+		if block.Action.URL == "" {
+			return fmt.Errorf("action URL is required")
+		}
+		switch block.Action.Method {
+		case MethodGET, MethodPOST, MethodPUT, MethodDELETE, MethodPATCH:
+		default:
+			return fmt.Errorf("unsupported HTTP method: %s", block.Action.Method)
+		}
 	default:
-		return fmt.Errorf("unsupported HTTP method: %s", block.Action.Method)
+		return fmt.Errorf("unsupported action type: %s", block.ActionType)
 	}
+
 	return nil
 }

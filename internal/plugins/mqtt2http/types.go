@@ -10,6 +10,14 @@ const (
 	OperatorOR  OperatorType = "OR"
 )
 
+// ActionType defines the type of action to execute
+type ActionType string
+
+const (
+	ActionHTTP ActionType = "http"
+	ActionMQTT ActionType = "mqtt"
+)
+
 // HTTPMethod represents supported HTTP methods
 type HTTPMethod string
 
@@ -65,13 +73,25 @@ type HTTPAction struct {
 	Timeout  int               `json:"timeout"` // Seconds, default 10
 }
 
+// MQTTAction defines the MQTT publish action to execute when triggered
+type MQTTAction struct {
+	Topic          string `json:"topic"`   // Target MQTT topic (supports templates)
+	Payload        string `json:"payload"` // Message payload (supports templates)
+	QoS            byte   `json:"qos"`     // 0, 1, or 2
+	Retain         bool   `json:"retain"`
+	AutoOffDelay   int    `json:"autoOffDelay,omitempty"`   // Seconds before sending auto-off payload (0 = disabled)
+	AutoOffPayload string `json:"autoOffPayload,omitempty"` // Payload to send after delay (supports templates)
+}
+
 // HookBlock is a complete trigger-action unit
 type HookBlock struct {
-	ID      string       `json:"id"`
-	Name    string       `json:"name"`
-	Enabled bool         `json:"enabled"`
-	Trigger TriggerBlock `json:"trigger"`
-	Action  HTTPAction   `json:"action"`
+	ID         string       `json:"id"`
+	Name       string       `json:"name"`
+	Enabled    bool         `json:"enabled"`
+	Trigger    TriggerBlock `json:"trigger"`
+	ActionType ActionType   `json:"actionType"`           // "http" or "mqtt"
+	Action     HTTPAction   `json:"action"`               // Used when actionType == "http"
+	MQTTAction MQTTAction   `json:"mqttAction,omitempty"` // Used when actionType == "mqtt"
 }
 
 // ExecutionLog records a single trigger execution

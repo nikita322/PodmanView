@@ -36,7 +36,7 @@
             <span id="mqtt2http-help-arrow" style="font-size: 1.2em; transition: transform 0.2s;">&#9660;</span>
         </div>
         <div id="mqtt2http-help-content" style="display: none; margin-top: 12px; font-size: 0.9em; line-height: 1.6; color: var(--text-secondary, #aaa);">
-            <p>This plugin listens to MQTT topics and triggers HTTP requests when conditions are met.</p>
+            <p>This plugin listens to MQTT topics and triggers actions (HTTP requests or MQTT publish) when conditions are met.</p>
 
             <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Trigger Conditions</h3>
             <ul style="padding-left: 20px; margin: 4px 0;">
@@ -92,15 +92,33 @@
                 </tr>
             </table>
 
-            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Example: Water Leak → VK Notification</h3>
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Action Types</h3>
+            <ul style="padding-left: 20px; margin: 4px 0;">
+                <li><b>HTTP Request</b> — sends an HTTP request to a URL (webhooks, APIs, notifications)</li>
+                <li><b>MQTT Publish</b> — publishes a message to an MQTT topic (control Zigbee devices via Z2M, etc.)</li>
+            </ul>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Example: Water Leak → VK Notification (HTTP)</h3>
             <div style="background: var(--bg-secondary, #2a2a3e); padding: 12px; border-radius: 6px; margin: 8px 0;">
                 <div><b>Topic regex:</b> <code>zigbee2mqtt/.*протечка.*</code></div>
                 <div><b>Payload regex:</b> <code>"water_leak":true</code></div>
                 <div><b>Mode:</b> On change</div>
+                <div><b>Action:</b> HTTP Request</div>
                 <div><b>Method:</b> POST</div>
                 <div><b>Body Type:</b> Form data</div>
                 <div><b>Body:</b></div>
                 <code style="word-break: break-all; font-size: 0.85em;">access_token=YOUR_TOKEN&peer_id=2000000002&message=🚨{{topic_name}}: протечка🚨&random_id={{timestamp}}&v=5.199</code>
+            </div>
+
+            <h3 style="margin: 14px 0 6px; color: var(--text-color, #fff);">Example: Water Leak → Zigbee Siren (MQTT)</h3>
+            <div style="background: var(--bg-secondary, #2a2a3e); padding: 12px; border-radius: 6px; margin: 8px 0;">
+                <div><b>Topic regex:</b> <code>zigbee2mqtt/.*</code></div>
+                <div><b>Payload regex:</b> <code>"water_leak":true</code></div>
+                <div><b>Mode:</b> On change</div>
+                <div><b>Action:</b> MQTT Publish</div>
+                <div><b>Topic:</b> <code>zigbee2mqtt/Siren/set</code></div>
+                <div><b>Payload:</b></div>
+                <code style="word-break: break-all; font-size: 0.85em;">{"warning": {"mode": 1, "level": 2, "strobe_level": 0, "strobe": false, "strobe_duty_cycle": 0, "duration": 300}}</code>
             </div>
         </div>
     </div>
@@ -137,50 +155,110 @@
 
                 <hr style="border-color: var(--border-color); margin: 20px 0;">
 
-                <!-- HTTP Action -->
+                <!-- Action Type -->
                 <div class="form-group">
-                    <label>HTTP Action</label>
-                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <select id="mqtt2http-method" class="form-input" style="width: 120px;">
-                            <option value="GET">GET</option>
-                            <option value="POST" selected>POST</option>
-                            <option value="PUT">PUT</option>
-                            <option value="DELETE">DELETE</option>
-                            <option value="PATCH">PATCH</option>
-                        </select>
-                        <input type="text" id="mqtt2http-url" class="form-input" placeholder="http://example.com/api/endpoint" style="flex: 1;">
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Body Type</label>
-                    <select id="mqtt2http-body-type" class="form-input">
-                        <option value="forward">Forward MQTT payload</option>
-                        <option value="json">JSON (custom)</option>
-                        <option value="form">Form data</option>
-                        <option value="raw">Raw text</option>
-                        <option value="none">No body</option>
+                    <label>Action Type</label>
+                    <select id="mqtt2http-action-type" class="form-input" style="width: 200px;">
+                        <option value="http">HTTP Request</option>
+                        <option value="mqtt">MQTT Publish</option>
                     </select>
                 </div>
 
-                <div class="form-group" id="mqtt2http-body-group">
-                    <label>Body</label>
-                    <textarea id="mqtt2http-body" class="form-input" rows="4" placeholder='{"key": "value"}'></textarea>
-                    <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 6px;">
-                        Template variables: <code>{{topic}}</code> <code>{{topic_name}}</code> <code>{{payload}}</code> <code>{{payload.field}}</code> <code>{{timestamp}}</code> <code>{{timestamp_s}}</code>
+                <!-- HTTP Action -->
+                <div id="mqtt2http-http-action-group">
+                    <div class="form-group">
+                        <label>HTTP Action</label>
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <select id="mqtt2http-method" class="form-input" style="width: 120px;">
+                                <option value="GET">GET</option>
+                                <option value="POST" selected>POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                                <option value="PATCH">PATCH</option>
+                            </select>
+                            <input type="text" id="mqtt2http-url" class="form-input" placeholder="http://example.com/api/endpoint" style="flex: 1;">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Body Type</label>
+                        <select id="mqtt2http-body-type" class="form-input">
+                            <option value="forward">Forward MQTT payload</option>
+                            <option value="json">JSON (custom)</option>
+                            <option value="form">Form data</option>
+                            <option value="raw">Raw text</option>
+                            <option value="none">No body</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="mqtt2http-body-group">
+                        <label>Body</label>
+                        <textarea id="mqtt2http-body" class="form-input" rows="4" placeholder='{"key": "value"}'></textarea>
+                        <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 6px;">
+                            Template variables: <code>{{topic}}</code> <code>{{topic_name}}</code> <code>{{payload}}</code> <code>{{payload.field}}</code> <code>{{timestamp}}</code> <code>{{timestamp_s}}</code>
+                        </div>
+                    </div>
+
+                    <!-- Headers -->
+                    <div class="form-group">
+                        <label>Headers</label>
+                        <div id="mqtt2http-headers-list"></div>
+                        <button id="mqtt2http-add-header" class="btn" style="margin-top: 5px;">+ Header</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Timeout (seconds)</label>
+                        <input type="number" id="mqtt2http-timeout" class="form-input" value="10" min="1" max="60" style="width: 100px;">
                     </div>
                 </div>
 
-                <!-- Headers -->
-                <div class="form-group">
-                    <label>Headers</label>
-                    <div id="mqtt2http-headers-list"></div>
-                    <button id="mqtt2http-add-header" class="btn" style="margin-top: 5px;">+ Header</button>
-                </div>
+                <!-- MQTT Action -->
+                <div id="mqtt2http-mqtt-action-group" style="display: none;">
+                    <div class="form-group">
+                        <label>Target MQTT Topic</label>
+                        <input type="text" id="mqtt2http-mqtt-topic" class="form-input" placeholder="zigbee2mqtt/Siren/set">
+                        <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 4px;">
+                            Template variables: <code>{{topic}}</code> <code>{{topic_name}}</code> <code>{{payload.field}}</code>
+                        </div>
+                    </div>
 
-                <div class="form-group">
-                    <label>Timeout (seconds)</label>
-                    <input type="number" id="mqtt2http-timeout" class="form-input" value="10" min="1" max="60" style="width: 100px;">
+                    <div class="form-group">
+                        <label>Payload</label>
+                        <textarea id="mqtt2http-mqtt-payload" class="form-input" rows="5" placeholder='{"warning": {"mode": 1, "level": 2, "strobe_level": 0, "strobe": false, "strobe_duty_cycle": 0, "duration": 60}}'></textarea>
+                        <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 4px;">
+                            Template variables: <code>{{topic}}</code> <code>{{topic_name}}</code> <code>{{payload}}</code> <code>{{payload.field}}</code> <code>{{timestamp}}</code> <code>{{timestamp_s}}</code>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                        <div class="form-group">
+                            <label>QoS</label>
+                            <select id="mqtt2http-mqtt-qos" class="form-input" style="width: 80px;">
+                                <option value="0">0</option>
+                                <option value="1" selected>1</option>
+                                <option value="2">2</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Retain</label>
+                            <select id="mqtt2http-mqtt-retain" class="form-input" style="width: 80px;">
+                                <option value="false" selected>No</option>
+                                <option value="true">Yes</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Auto-off (сек)</label>
+                            <input type="number" id="mqtt2http-mqtt-auto-off-delay" class="form-input" value="0" min="0" max="3600" style="width: 100px;" placeholder="0 = off">
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="mqtt2http-mqtt-auto-off-group" style="display: none;">
+                        <label>Auto-off Payload</label>
+                        <textarea id="mqtt2http-mqtt-auto-off-payload" class="form-input" rows="2" placeholder='{"warning": {"mode": "stop"}}'></textarea>
+                        <div style="font-size: 0.8em; color: var(--text-secondary, #888); margin-top: 4px;">
+                            Отправится на тот же топик через указанное время. Для сирены: <code>{"warning": {"mode": "stop"}}</code>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--border-color);">
@@ -399,6 +477,14 @@
                 const bodyGroup = $('mqtt2http-body-group');
                 bodyGroup.style.display = (e.target.value === 'none' || e.target.value === 'forward') ? 'none' : 'block';
             });
+            $('mqtt2http-action-type')?.addEventListener('change', (e) => {
+                const isMqtt = e.target.value === 'mqtt';
+                $('mqtt2http-http-action-group').style.display = isMqtt ? 'none' : 'block';
+                $('mqtt2http-mqtt-action-group').style.display = isMqtt ? 'block' : 'none';
+            });
+            $('mqtt2http-mqtt-auto-off-delay')?.addEventListener('input', (e) => {
+                $('mqtt2http-mqtt-auto-off-group').style.display = parseInt(e.target.value) > 0 ? 'block' : 'none';
+            });
             $('mqtt2http-help-toggle')?.addEventListener('click', () => {
                 const content = $('mqtt2http-help-content');
                 const arrow = $('mqtt2http-help-arrow');
@@ -473,7 +559,10 @@
                             </div>
                         </div>
                         <div class="block-detail">Triggers: ${conditions}</div>
-                        <div class="block-detail">Action: <b>${b.action.method}</b> <code>${this.esc(b.action.url)}</code> (${b.action.bodyType})</div>
+                        <div class="block-detail">Action: ${(b.actionType === 'mqtt')
+                            ? `<b>MQTT</b> → <code>${this.esc(b.mqttAction?.topic || '')}</code>`
+                            : `<b>${b.action.method}</b> <code>${this.esc(b.action.url)}</code> (${b.action.bodyType})`
+                        }</div>
                     </div>`;
             }).join('');
 
@@ -505,15 +594,34 @@
             const $ = id => document.getElementById(id);
             $('mqtt2http-modal-title').textContent = block ? 'Edit Block' : 'Add Block';
             $('mqtt2http-block-name').value = block ? block.name : '';
+            $('mqtt2http-operator').value = block ? block.trigger.operator : 'OR';
+
+            // Action type
+            const actionType = block ? (block.actionType || 'http') : 'http';
+            $('mqtt2http-action-type').value = actionType;
+            const isMqtt = actionType === 'mqtt';
+            $('mqtt2http-http-action-group').style.display = isMqtt ? 'none' : 'block';
+            $('mqtt2http-mqtt-action-group').style.display = isMqtt ? 'block' : 'none';
+
+            // HTTP fields
             $('mqtt2http-method').value = block ? block.action.method : 'POST';
             $('mqtt2http-url').value = block ? block.action.url : '';
             $('mqtt2http-body-type').value = block ? block.action.bodyType : 'forward';
             $('mqtt2http-body').value = block ? (block.action.body || '') : '';
             $('mqtt2http-timeout').value = block ? (block.action.timeout || 10) : 10;
-            $('mqtt2http-operator').value = block ? block.trigger.operator : 'OR';
 
             const bodyType = block ? block.action.bodyType : 'forward';
             $('mqtt2http-body-group').style.display = (bodyType === 'none' || bodyType === 'forward') ? 'none' : 'block';
+
+            // MQTT fields
+            const ma = block ? (block.mqttAction || {}) : {};
+            $('mqtt2http-mqtt-topic').value = ma.topic || '';
+            $('mqtt2http-mqtt-payload').value = ma.payload || '';
+            $('mqtt2http-mqtt-qos').value = String(ma.qos || 1);
+            $('mqtt2http-mqtt-retain').value = ma.retain ? 'true' : 'false';
+            $('mqtt2http-mqtt-auto-off-delay').value = ma.autoOffDelay || 0;
+            $('mqtt2http-mqtt-auto-off-payload').value = ma.autoOffPayload || '';
+            $('mqtt2http-mqtt-auto-off-group').style.display = (ma.autoOffDelay > 0) ? 'block' : 'none';
 
             this.editingBlockId = block ? block.id : null;
 
@@ -622,10 +730,13 @@
                 if (k) headers[k] = v;
             });
 
+            const actionType = $('mqtt2http-action-type').value;
+
             const block = {
                 id: this.editingBlockId || '',
                 name: $('mqtt2http-block-name').value.trim(),
                 enabled: true,
+                actionType: actionType,
                 trigger: {
                     conditions: conditions,
                     operator: $('mqtt2http-operator').value
@@ -637,11 +748,23 @@
                     bodyType: $('mqtt2http-body-type').value,
                     body: $('mqtt2http-body').value,
                     timeout: parseInt($('mqtt2http-timeout').value) || 10
+                },
+                mqttAction: {
+                    topic: $('mqtt2http-mqtt-topic').value.trim(),
+                    payload: $('mqtt2http-mqtt-payload').value,
+                    qos: parseInt($('mqtt2http-mqtt-qos').value) || 0,
+                    retain: $('mqtt2http-mqtt-retain').value === 'true',
+                    autoOffDelay: parseInt($('mqtt2http-mqtt-auto-off-delay').value) || 0,
+                    autoOffPayload: $('mqtt2http-mqtt-auto-off-payload').value
                 }
             };
 
             if (!block.name) { this.showError('Block name is required'); return; }
-            if (!block.action.url) { this.showError('URL is required'); return; }
+            if (actionType === 'mqtt') {
+                if (!block.mqttAction.topic) { this.showError('MQTT topic is required'); return; }
+            } else {
+                if (!block.action.url) { this.showError('URL is required'); return; }
+            }
 
             const isEdit = !!this.editingBlockId;
             const method = isEdit ? 'PUT' : 'POST';

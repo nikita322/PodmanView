@@ -217,7 +217,12 @@ func (p *Plugin) onMessage(topic string, payload []byte) {
 			continue
 		}
 		if p.shouldTrigger(block, topic, payload) {
-			go p.executeAction(block, topic, payload)
+			switch block.ActionType {
+			case ActionMQTT:
+				go p.executeMQTTAction(block, topic, payload)
+			default:
+				go p.executeAction(block, topic, payload)
+			}
 		}
 	}
 }
@@ -444,6 +449,88 @@ func (p *Plugin) executeAction(block HookBlock, triggerTopic string, mqttPayload
 		p.Logger().Printf("[%s] Block '%s' triggered by '%s' -> %s %s = %d (%dms)",
 			p.Name(), block.Name, triggerTopic,
 			block.Action.Method, block.Action.URL, resp.StatusCode, logEntry.DurationMs)
+	}
+}
+
+// executeMQTTAction publishes an MQTT message for a triggered block
+func (p *Plugin) executeMQTTAction(block HookBlock, triggerTopic string, mqttPayload []byte) {
+	start := time.Now()
+	logEntry := ExecutionLog{
+		BlockID:      block.ID,
+		BlockName:    block.Name,
+		Timestamp:    start,
+		TriggerTopic: triggerTopic,
+	}
+
+	deps := p.Deps()
+	if deps == nil || deps.MQTTClient == nil {
+		logEntry.Error = "MQTT client not available"
+		logEntry.DurationMs = time.Since(start).Milliseconds()
+		p.addLog(logEntry)
+		return
+	}
+
+	if !deps.MQTTClient.IsConnected() {
+		logEntry.Error = "MQTT client not connected"
+		logEntry.DurationMs = time.Since(start).Milliseconds()
+		p.addLog(logEntry)
+		return
+	}
+
+	targetTopic := renderTemplate(block.MQTTAction.Topic, triggerTopic, mqttPayload)
+	payload := renderTemplate(block.MQTTAction.Payload, triggerTopic, mqttPayload)
+
+	var err error
+	if block.MQTTAction.QoS > 0 || block.MQTTAction.Retain {
+		err = deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), block.MQTTAction.Retain)
+	} else {
+		err = deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), false)
+	}
+
+	logEntry.DurationMs = time.Since(start).Milliseconds()
+
+	if err != nil {
+		logEntry.Error = err.Error()
+		p.addLog(logEntry)
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] Block '%s' MQTT publish error: %v", p.Name(), block.Name, err)
+		}
+		return
+	}
+
+	logEntry.StatusCode = 200 // virtual "OK" status for MQTT publish
+	p.addLog(logEntry)
+
+	if p.Logger() != nil {
+		p.Logger().Printf("[%s] Block '%s' triggered by '%s' -> MQTT publish to '%s' (%dms)",
+			p.Name(), block.Name, triggerTopic, targetTopic, logEntry.DurationMs)
+	}
+
+	// Auto-off: send stop payload after delay
+	if block.MQTTAction.AutoOffDelay > 0 && block.MQTTAction.AutoOffPayload != "" {
+		go func() {
+			time.Sleep(time.Duration(block.MQTTAction.AutoOffDelay) * time.Second)
+
+			offPayload := renderTemplate(block.MQTTAction.AutoOffPayload, triggerTopic, mqttPayload)
+			offErr := deps.MQTTClient.PublishRaw(targetTopic, []byte(offPayload), block.MQTTAction.Retain)
+
+			offLog := ExecutionLog{
+				BlockID:      block.ID,
+				BlockName:    block.Name + " [auto-off]",
+				Timestamp:    time.Now(),
+				TriggerTopic: triggerTopic,
+				StatusCode:   200,
+			}
+			if offErr != nil {
+				offLog.Error = offErr.Error()
+				offLog.StatusCode = 0
+			}
+			p.addLog(offLog)
+
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Block '%s' auto-off sent to '%s'", p.Name(), block.Name, targetTopic)
+			}
+		}()
 	}
 }
 
