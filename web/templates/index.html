@@ -466,6 +466,27 @@
         </div>
     </div>
 
+    <!-- Modal for Container Stats -->
+    <div id="modal-stats" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Container Stats</h2>
+                <button type="button" class="btn-close" onclick="closeModal('modal-stats')">&times;</button>
+            </div>
+            <div class="stats-toolbar">
+                <label class="toggle-label">
+                    <input type="checkbox" id="stats-auto-checkbox" onchange="App.toggleAutoStats()">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">Auto</span>
+                </label>
+                <button type="button" class="btn" onclick="App.refreshStats()">Refresh</button>
+            </div>
+            <div id="stats-content" class="stats-viewer">
+                <div class="stats-loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Logs -->
     <div id="modal-logs" class="modal hidden">
         <div class="modal-content modal-large">

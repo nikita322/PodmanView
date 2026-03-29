@@ -1444,6 +1444,10 @@ const App = {
 
         let menuItems = `<button class="dropdown-item" onclick="App.viewLogs('${id}')">Logs</button>`;
 
+        if (container.State === 'running') {
+            menuItems += `<button class="dropdown-item" onclick="App.viewStats('${id}')">Stats</button>`;
+        }
+
         if (isAdmin) {
             if (container.State === 'running') {
                 menuItems += `<button class="dropdown-item" onclick="App.openTerminal('${id}')">Terminal</button>`;
@@ -1624,6 +1628,126 @@ const App = {
             this.logsAutoInterval = null;
         }
         const checkbox = document.getElementById('logs-auto-checkbox');
+        if (checkbox) checkbox.checked = false;
+    },
+
+    // Container Stats
+    async viewStats(id) {
+        this.statsContainerId = id;
+        this.stopAutoStats();
+        this.ensureStatsModal();
+        this.showModal('modal-stats');
+        await this.fetchStats();
+    },
+
+    ensureStatsModal() {
+        if (document.getElementById('modal-stats')) return;
+        const modal = document.createElement('div');
+        modal.id = 'modal-stats';
+        modal.className = 'modal hidden';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Container Stats</h2>
+                    <button type="button" class="btn-close" onclick="closeModal('modal-stats')">&times;</button>
+                </div>
+                <div class="stats-toolbar">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="stats-auto-checkbox" onchange="App.toggleAutoStats()">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Auto</span>
+                    </label>
+                    <button type="button" class="btn" onclick="App.refreshStats()">Refresh</button>
+                </div>
+                <div id="stats-content" class="stats-viewer">
+                    <div class="stats-loading">Loading...</div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+    },
+
+    async fetchStats() {
+        if (!this.statsContainerId) return;
+
+        const content = document.getElementById('stats-content');
+
+        try {
+            const response = await this.authFetch('/api/containers');
+            if (!response.ok) throw new Error('Failed to load stats');
+
+            const containers = await response.json();
+            const c = containers.find(ct => (ct.Id || ct.ID) === this.statsContainerId);
+
+            if (!c || c.State !== 'running') {
+                content.innerHTML = '<div class="stats-empty">Container is not running</div>';
+                return;
+            }
+
+            const cpu = c.CPU || 0;
+            const memUsage = c.MemUsage || 0;
+            const memLimit = c.MemLimit || 0;
+            const memPerc = c.MemPerc || 0;
+            const netIn = c.NetInput || 0;
+            const netOut = c.NetOutput || 0;
+            const blockIn = c.BlockInput || 0;
+            const blockOut = c.BlockOutput || 0;
+            const pids = c.PIDs || 0;
+
+            content.innerHTML = `
+                <div class="stats-grid-detail">
+                    <div class="stat-detail-card">
+                        <div class="stat-detail-label">CPU</div>
+                        <div class="stat-detail-value">${cpu.toFixed(2)}%</div>
+                        <div class="stat-detail-bar"><div class="stat-detail-fill cpu-fill" style="width: ${Math.min(cpu, 100)}%"></div></div>
+                    </div>
+                    <div class="stat-detail-card">
+                        <div class="stat-detail-label">Memory</div>
+                        <div class="stat-detail-value">${this.formatBytes(memUsage)} / ${this.formatBytes(memLimit)}</div>
+                        <div class="stat-detail-bar"><div class="stat-detail-fill mem-fill" style="width: ${Math.min(memPerc, 100)}%"></div></div>
+                        <div class="stat-detail-sub">${memPerc.toFixed(1)}%</div>
+                    </div>
+                    <div class="stat-detail-card">
+                        <div class="stat-detail-label">Network I/O</div>
+                        <div class="stat-detail-value">${this.formatBytes(netIn)} / ${this.formatBytes(netOut)}</div>
+                        <div class="stat-detail-sub">IN / OUT</div>
+                    </div>
+                    <div class="stat-detail-card">
+                        <div class="stat-detail-label">Block I/O</div>
+                        <div class="stat-detail-value">${this.formatBytes(blockIn)} / ${this.formatBytes(blockOut)}</div>
+                        <div class="stat-detail-sub">READ / WRITE</div>
+                    </div>
+                    <div class="stat-detail-card">
+                        <div class="stat-detail-label">PIDs</div>
+                        <div class="stat-detail-value">${pids}</div>
+                    </div>
+                </div>`;
+        } catch (error) {
+            if (error.message !== 'Session expired') {
+                console.error('Stats error:', error);
+                content.innerHTML = '<div class="stats-empty">Error loading stats</div>';
+            }
+        }
+    },
+
+    refreshStats() {
+        this.fetchStats();
+    },
+
+    toggleAutoStats() {
+        const checkbox = document.getElementById('stats-auto-checkbox');
+        if (checkbox.checked) {
+            this.statsAutoInterval = setInterval(() => this.fetchStats(), 3000);
+        } else {
+            this.stopAutoStats();
+        }
+    },
+
+    stopAutoStats() {
+        if (this.statsAutoInterval) {
+            clearInterval(this.statsAutoInterval);
+            this.statsAutoInterval = null;
+        }
+        const checkbox = document.getElementById('stats-auto-checkbox');
         if (checkbox) checkbox.checked = false;
     },
 
@@ -2077,10 +2201,14 @@ const App = {
 
     closeModal(id) {
         document.getElementById(id).classList.add('hidden');
-        // Stop auto-refresh when closing logs modal
+        // Stop auto-refresh when closing modals
         if (id === 'modal-logs') {
             this.stopAutoLogs();
             this.logsContainerId = null;
+        }
+        if (id === 'modal-stats') {
+            this.stopAutoStats();
+            this.statsContainerId = null;
         }
     },
 

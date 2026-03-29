@@ -202,6 +202,11 @@ type ContainerStats struct {
 	MemUsage    uint64  `json:"MemUsage"`
 	MemLimit    uint64  `json:"MemLimit"`
 	MemPerc     float64 `json:"MemPerc"`
+	NetInput    uint64  `json:"NetInput"`
+	NetOutput   uint64  `json:"NetOutput"`
+	BlockInput  uint64  `json:"BlockInput"`
+	BlockOutput uint64  `json:"BlockOutput"`
+	PIDs        uint64  `json:"PIDs"`
 }
 
 // GetContainersStats returns stats for all running containers
@@ -426,14 +431,14 @@ type Image struct {
 }
 
 type ImageInspect struct {
-	ID            string   `json:"Id"`
-	RepoTags      []string `json:"RepoTags"`
-	RepoDigests   []string `json:"RepoDigests"`
-	Created       string   `json:"Created"`
-	Size          int64    `json:"Size"`
-	Architecture  string   `json:"Architecture"`
-	Os            string   `json:"Os"`
-	Config        struct {
+	ID           string   `json:"Id"`
+	RepoTags     []string `json:"RepoTags"`
+	RepoDigests  []string `json:"RepoDigests"`
+	Created      string   `json:"Created"`
+	Size         int64    `json:"Size"`
+	Architecture string   `json:"Architecture"`
+	Os           string   `json:"Os"`
+	Config       struct {
 		Env        []string          `json:"Env"`
 		Cmd        []string          `json:"Cmd"`
 		Entrypoint []string          `json:"Entrypoint"`

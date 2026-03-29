@@ -26,12 +26,19 @@ func NewContainerHandler(client *podman.Client, eventStore *events.Store) *Conta
 
 // ContainerWithStats extends Container with resource stats
 type ContainerWithStats struct {
-	ID       string   `json:"Id"`
-	Names    []string `json:"Names"`
-	Image    string   `json:"Image"`
-	State    string   `json:"State"`
-	CPU      float64  `json:"CPU"`
-	MemUsage uint64   `json:"MemUsage"`
+	ID          string   `json:"Id"`
+	Names       []string `json:"Names"`
+	Image       string   `json:"Image"`
+	State       string   `json:"State"`
+	CPU         float64  `json:"CPU"`
+	MemUsage    uint64   `json:"MemUsage"`
+	MemLimit    uint64   `json:"MemLimit"`
+	MemPerc     float64  `json:"MemPerc"`
+	NetInput    uint64   `json:"NetInput"`
+	NetOutput   uint64   `json:"NetOutput"`
+	BlockInput  uint64   `json:"BlockInput"`
+	BlockOutput uint64   `json:"BlockOutput"`
+	PIDs        uint64   `json:"PIDs"`
 }
 
 // List handles GET /api/containers
@@ -63,6 +70,13 @@ func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
 		if stat := statsMap[c.ID]; stat != nil {
 			result[i].CPU = stat.CPU
 			result[i].MemUsage = stat.MemUsage
+			result[i].MemLimit = stat.MemLimit
+			result[i].MemPerc = stat.MemPerc
+			result[i].NetInput = stat.NetInput
+			result[i].NetOutput = stat.NetOutput
+			result[i].BlockInput = stat.BlockInput
+			result[i].BlockOutput = stat.BlockOutput
+			result[i].PIDs = stat.PIDs
 		}
 	}
 
