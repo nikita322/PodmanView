@@ -59,4 +59,3 @@ func (h *HistoryHandler) saveCommand(command string) error {
 
 	return nil
 }
-

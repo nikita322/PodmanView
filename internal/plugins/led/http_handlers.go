@@ -65,7 +65,7 @@ func (p *LEDPlugin) handleToggleLEDs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{
-		"status":  "LEDs " + status + " successfully",
+		"status": "LEDs " + status + " successfully",
 		"enabled": func() string {
 			if req.Enable {
 				return "true"

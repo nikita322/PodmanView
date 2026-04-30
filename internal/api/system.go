@@ -9,9 +9,9 @@ import (
 
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
-	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/temperature"
+	"podmanview/internal/podman"
 )
 
 // Cache for system info and resource counts
@@ -21,12 +21,12 @@ var (
 	systemInfoMu        sync.RWMutex
 
 	// Cache for images/volumes/networks (change rarely)
-	cachedImagesCount    int
-	cachedVolumesCount   int
-	cachedNetworksCount  int
-	resourcesCacheTime   time.Time
-	resourcesCacheMu     sync.RWMutex
-	resourcesCacheTTL    = 30 * time.Second
+	cachedImagesCount   int
+	cachedVolumesCount  int
+	cachedNetworksCount int
+	resourcesCacheTime  time.Time
+	resourcesCacheMu    sync.RWMutex
+	resourcesCacheTTL   = 30 * time.Second
 )
 
 // SystemHandler handles system endpoints

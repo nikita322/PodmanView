@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	githubRepo    = "nikita322/PodmanView"
-	githubAPIURL  = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
-	cacheTTL      = 15 * time.Minute
-	requestTimeout = 30 * time.Second
+	githubRepo      = "nikita322/PodmanView"
+	githubAPIURL    = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+	cacheTTL        = 15 * time.Minute
+	requestTimeout  = 30 * time.Second
 	downloadTimeout = 10 * time.Minute
 )
 
@@ -40,11 +40,11 @@ type Updater struct {
 
 // GitHubRelease represents GitHub release API response
 type GitHubRelease struct {
-	TagName     string         `json:"tag_name"`
-	Body        string         `json:"body"`
-	HTMLURL     string         `json:"html_url"`
-	PublishedAt time.Time      `json:"published_at"`
-	Assets      []GitHubAsset  `json:"assets"`
+	TagName     string        `json:"tag_name"`
+	Body        string        `json:"body"`
+	HTMLURL     string        `json:"html_url"`
+	PublishedAt time.Time     `json:"published_at"`
+	Assets      []GitHubAsset `json:"assets"`
 }
 
 // GitHubAsset represents a release asset

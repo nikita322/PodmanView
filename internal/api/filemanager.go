@@ -100,7 +100,7 @@ type FileManagerHandler struct {
 // pathValidationCache caches validated paths to avoid repeated validation
 type pathValidationCache struct {
 	sync.RWMutex
-	cache map[string]string // requestPath -> absPath
+	cache   map[string]string // requestPath -> absPath
 	maxSize int
 }
 
