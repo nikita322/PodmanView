@@ -20,7 +20,6 @@ const (
 type User struct {
 	Username string `json:"username"`
 	UID      string `json:"uid"`
-	GID      string `json:"gid"`
 	Role     Role   `json:"role"`
 }
 

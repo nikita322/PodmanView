@@ -612,7 +612,6 @@ func (p *TemperaturePlugin) publishDiscoveryConfigs(data *TemperatureData, deps 
 		cfg := &mqtt.SensorConfig{
 			SensorID:          sensorID,
 			Name:              temp.Label + " Temperature",
-			SensorType:        mqtt.SensorTypeTemperature,
 			Unit:              "°C",
 			StateTopic:        "sensor/" + sensorID + "/state",
 			AttributesTopic:   "sensor/" + sensorID + "/attributes",
@@ -631,7 +630,6 @@ func (p *TemperaturePlugin) publishDiscoveryConfigs(data *TemperatureData, deps 
 			cfg := &mqtt.SensorConfig{
 				SensorID:          sensorID,
 				Name:              storage.Device + " " + temp.Label + " Temperature",
-				SensorType:        mqtt.SensorTypeTemperature,
 				Unit:              "°C",
 				StateTopic:        "sensor/" + sensorID + "/state",
 				AttributesTopic:   "sensor/" + sensorID + "/attributes",

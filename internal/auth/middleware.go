@@ -58,24 +58,6 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireAdmin middleware checks for admin role
-func (m *Middleware) RequireAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user := GetUserFromContext(r.Context())
-		if user == nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		if !user.IsAdmin() {
-			http.Error(w, "Forbidden: admin access required", http.StatusForbidden)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 // GetUserFromContext extracts user from request context
 func GetUserFromContext(ctx context.Context) *User {
 	user, ok := ctx.Value(UserContextKey).(*User)

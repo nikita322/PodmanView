@@ -95,19 +95,6 @@ func (s *Store) Add(eventType EventType, username, ip string, success bool, deta
 	s.events = append(s.events, event)
 }
 
-// GetAll returns all events (newest first)
-func (s *Store) GetAll() []Event {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Return copy in reverse order (newest first)
-	result := make([]Event, len(s.events))
-	for i, e := range s.events {
-		result[len(s.events)-1-i] = e
-	}
-	return result
-}
-
 // GetLast returns the last N events (newest first)
 func (s *Store) GetLast(n int) []Event {
 	s.mu.RLock()
@@ -138,13 +125,6 @@ func (s *Store) GetSince(lastID int64) []Event {
 		}
 	}
 	return result
-}
-
-// Count returns the total number of events
-func (s *Store) Count() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.events)
 }
 
 // LastID returns the ID of the most recent event

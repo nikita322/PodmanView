@@ -98,25 +98,6 @@ type Route struct {
 	RequireAuth bool
 }
 
-// GetMethod returns the HTTP method
-func (r Route) GetMethod() string {
-	return r.Method
-}
-
-// GetPath returns the route path
-func (r Route) GetPath() string {
-	return r.Path
-}
-
-// PluginInfo contains plugin information for API responses
-type PluginInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Version     string `json:"version"`
-	Enabled     bool   `json:"enabled"`
-	Status      string `json:"status"` // "running", "stopped", "error"
-}
-
 // BasePlugin is a base structure that plugins can embed
 type BasePlugin struct {
 	name        string
@@ -166,13 +147,6 @@ func (p *BasePlugin) Deps() *PluginDependencies {
 // Logger returns the plugin's logger
 func (p *BasePlugin) Logger() *log.Logger {
 	return p.logger
-}
-
-// LogError logs an error message
-func (p *BasePlugin) LogError(format string, v ...interface{}) {
-	if p.logger != nil {
-		p.logger.Printf("["+p.name+"] "+format, v...)
-	}
 }
 
 // GetHTML returns the plugin's HTML interface
@@ -230,23 +204,4 @@ func RunPeriodic(ctx context.Context, interval time.Duration, logger *log.Logger
 	}
 }
 
-// RunOnce runs a function once after a delay, unless the context is cancelled
-// This is useful for delayed initialization or one-time background tasks
-func RunOnce(ctx context.Context, delay time.Duration, logger *log.Logger, pluginName string, task func(context.Context) error) {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
 
-	select {
-	case <-ctx.Done():
-		if logger != nil {
-			logger.Printf("[%s] Delayed task cancelled", pluginName)
-		}
-		return
-	case <-timer.C:
-		if err := task(ctx); err != nil {
-			if logger != nil {
-				logger.Printf("[%s] Delayed task error: %v", pluginName, err)
-			}
-		}
-	}
-}

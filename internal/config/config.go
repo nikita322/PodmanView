@@ -362,13 +362,6 @@ func (c *Config) LogMaxBackups() int {
 	return c.logMaxBackups
 }
 
-// FilePath returns the path to the .env file.
-func (c *Config) FilePath() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.filePath
-}
-
 // MQTT Getters
 
 // MQTTBroker returns the MQTT broker address.
@@ -413,81 +406,6 @@ func (c *Config) MQTTUseTLS() bool {
 	return c.mqttUseTLS
 }
 
-// Setters (thread-safe, auto-save)
-
-// SetAddr sets the server address and saves to file.
-func (c *Config) SetAddr(addr string) error {
-	c.mu.Lock()
-	c.addr = addr
-	c.dirty = true
-	c.mu.Unlock()
-
-	if err := c.validate(); err != nil {
-		return err
-	}
-	return c.Save()
-}
-
-// SetJWTSecret sets the JWT secret and saves to file.
-func (c *Config) SetJWTSecret(secret string) error {
-	if secret == "" {
-		return errors.New("JWT secret cannot be empty")
-	}
-
-	c.mu.Lock()
-	c.jwtSecret = secret
-	c.dirty = true
-	c.mu.Unlock()
-
-	return c.Save()
-}
-
-// SetJWTExpiration sets the JWT expiration and saves to file.
-func (c *Config) SetJWTExpiration(d time.Duration) error {
-	c.mu.Lock()
-	c.jwtExpiration = d
-	c.dirty = true
-	c.mu.Unlock()
-
-	if err := c.validate(); err != nil {
-		return err
-	}
-	return c.Save()
-}
-
-// SetNoAuth sets the no-auth flag and saves to file.
-func (c *Config) SetNoAuth(noAuth bool) error {
-	c.mu.Lock()
-	c.noAuth = noAuth
-	c.dirty = true
-	c.mu.Unlock()
-
-	return c.Save()
-}
-
-// SetSocketPath sets the Podman socket path and saves to file.
-func (c *Config) SetSocketPath(path string) error {
-	c.mu.Lock()
-	c.socketPath = path
-	c.dirty = true
-	c.mu.Unlock()
-
-	if err := c.validate(); err != nil {
-		return err
-	}
-	return c.Save()
-}
-
-// SetLogDir sets the log directory path and saves to file.
-func (c *Config) SetLogDir(dir string) error {
-	c.mu.Lock()
-	c.logDir = dir
-	c.dirty = true
-	c.mu.Unlock()
-
-	return c.Save()
-}
-
 // Helper functions
 
 // generateSecureSecret generates a cryptographically secure random hex string.
@@ -511,32 +429,7 @@ func parseBool(s string) bool {
 	}
 }
 
-// Reload reloads configuration from file.
-// Useful for hot-reloading configuration.
-func (c *Config) Reload() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	// Save current JWT secret in case file doesn't have one
-	currentSecret := c.jwtSecret
-
-	// Reset to defaults
-	c.setDefaults()
-
-	// Load from file
-	if err := c.loadFromFile(); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	}
-
-	// Restore JWT secret if not in file
-	if c.jwtSecret == "" {
-		c.jwtSecret = currentSecret
-	}
-
-	return c.validate()
-}
 
 // String returns a string representation of the config (without secrets).
 func (c *Config) String() string {

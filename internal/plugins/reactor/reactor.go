@@ -41,7 +41,6 @@ type Plugin struct {
 	mu             sync.RWMutex
 	blocks         []ReactionBlock
 	logs           []ExecutionLog
-	httpClient     *http.Client
 	compiledRegex  map[string]*regexp.Regexp
 	prevMatchState map[condStateKey]bool
 	subscribed     bool
@@ -62,9 +61,6 @@ func New() *Plugin {
 		logs:           make([]ExecutionLog, 0, maxLogEntries),
 		compiledRegex:  make(map[string]*regexp.Regexp),
 		prevMatchState: make(map[condStateKey]bool),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}
 }
 

@@ -40,11 +40,8 @@ func restoreBackup(workDir, backupDir string) error {
 	backupBinary := filepath.Join(backupDir, "podmanview")
 	if _, err := os.Stat(backupBinary); err == nil {
 		dstBinary := filepath.Join(workDir, "podmanview")
-		if err := copyFile(backupBinary, dstBinary); err != nil {
+		if err := replaceBinary(backupBinary, dstBinary); err != nil {
 			return fmt.Errorf("restore binary: %w", err)
-		}
-		if err := os.Chmod(dstBinary, 0755); err != nil {
-			return fmt.Errorf("chmod binary: %w", err)
 		}
 	}
 
@@ -57,6 +54,29 @@ func restoreBackup(workDir, backupDir string) error {
 		if err := copyDir(backupWeb, dstWeb); err != nil {
 			return fmt.Errorf("restore web directory: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// replaceBinary atomically replaces dst with src using a temp file + rename.
+// This works even when dst is a currently-running executable on Linux.
+func replaceBinary(src, dst string) error {
+	tmp := dst + ".new"
+
+	if err := copyFile(src, tmp); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("copy to temp: %w", err)
+	}
+
+	if err := os.Chmod(tmp, 0755); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("chmod temp: %w", err)
+	}
+
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename temp: %w", err)
 	}
 
 	return nil

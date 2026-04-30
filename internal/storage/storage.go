@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"encoding/json"
 	"errors"
 	"time"
 )
@@ -48,9 +47,6 @@ type Storage interface {
 	// ListEnabledPlugins returns a list of all enabled plugin names
 	ListEnabledPlugins() ([]string, error)
 
-	// ListAllPlugins returns all plugin configurations
-	ListAllPlugins() (map[string]*PluginConfig, error)
-
 	// Plugin Data Methods
 
 	// Get retrieves data for a plugin by key
@@ -90,9 +86,6 @@ type Storage interface {
 	// List returns all keys and values for a plugin
 	List(pluginName string) (map[string][]byte, error)
 
-	// DeleteAll removes all data for a plugin
-	DeleteAll(pluginName string) error
-
 	// Command History Methods
 
 	// SaveCommandHistory saves a command to history
@@ -117,12 +110,4 @@ type Storage interface {
 	Close() error
 }
 
-// Helper functions for JSON marshaling/unmarshaling
 
-func marshalJSON(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-func unmarshalJSON(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
-}

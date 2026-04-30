@@ -178,11 +178,4 @@ func (d *DiscoveryManager) markDiscoveryPublished() {
 	}
 }
 
-// ClearDiscoveryState clears discovery state (for shutdown)
-func (d *DiscoveryManager) ClearDiscoveryState() {
-	// Could clear retained messages if needed
-	// For now just log
-	if d.logger != nil {
-		d.logger.Printf("[%s] Discovery state cleared", d.pluginName)
-	}
-}
+

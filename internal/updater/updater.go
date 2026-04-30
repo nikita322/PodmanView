@@ -368,16 +368,12 @@ func (u *Updater) getDownloadURLs(ctx context.Context, archiveName string) (arch
 
 // installUpdate copies new files to working directory
 func (u *Updater) installUpdate(extractDir string) error {
-	// Replace binary
+	// Replace binary atomically (works even when the binary is running)
 	newBinary := filepath.Join(extractDir, "podmanview")
 	dstBinary := filepath.Join(u.workDir, "podmanview")
 
-	// In Linux we can replace running binary
-	if err := copyFile(newBinary, dstBinary); err != nil {
+	if err := replaceBinary(newBinary, dstBinary); err != nil {
 		return fmt.Errorf("replace binary: %w", err)
-	}
-	if err := os.Chmod(dstBinary, 0755); err != nil {
-		return fmt.Errorf("chmod binary: %w", err)
 	}
 
 	// Replace web/ directory
@@ -406,11 +402,6 @@ func RestartService() error {
 // GetCurrentVersion returns the current version
 func (u *Updater) GetCurrentVersion() string {
 	return u.currentVersion
-}
-
-// GetWorkDir returns the working directory
-func (u *Updater) GetWorkDir() string {
-	return u.workDir
 }
 
 // SetLogger sets the logger for update operations

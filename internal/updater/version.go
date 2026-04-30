@@ -103,15 +103,6 @@ func (v Version) Compare(other Version) int {
 	return 0
 }
 
-// String returns version as string
-func (v Version) String() string {
-	s := fmt.Sprintf("v%d.%d.%d", v.Major, v.Minor, v.Patch)
-	if v.Prerelease != "" {
-		s += "-" + v.Prerelease
-	}
-	return s
-}
-
 // IsNewer returns true if latest is newer than current
 func IsNewer(current, latest string) (bool, error) {
 	// "dev" version is never updateable

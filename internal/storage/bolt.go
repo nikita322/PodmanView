@@ -195,29 +195,6 @@ func (s *BoltStorage) ListEnabledPlugins() ([]string, error) {
 	return enabled, err
 }
 
-// ListAllPlugins returns all plugin configurations
-func (s *BoltStorage) ListAllPlugins() (map[string]*PluginConfig, error) {
-	configs := make(map[string]*PluginConfig)
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte(configBucket))
-		if bucket == nil {
-			return fmt.Errorf("config bucket not found")
-		}
-
-		return bucket.ForEach(func(k, v []byte) error {
-			var cfg PluginConfig
-			if err := json.Unmarshal(v, &cfg); err != nil {
-				return fmt.Errorf("failed to unmarshal plugin config: %w", err)
-			}
-
-			configs[string(k)] = &cfg
-			return nil
-		})
-	})
-
-	return configs, err
-}
-
 // Plugin Data Methods
 
 // Get retrieves data for a plugin by key
@@ -384,18 +361,6 @@ func (s *BoltStorage) List(pluginName string) (map[string][]byte, error) {
 	})
 
 	return result, err
-}
-
-// DeleteAll removes all data for a plugin
-func (s *BoltStorage) DeleteAll(pluginName string) error {
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte(dataBucket))
-		if bucket == nil {
-			return fmt.Errorf("data bucket not found")
-		}
-
-		return bucket.DeleteBucket([]byte(pluginName))
-	})
 }
 
 // Command History Methods

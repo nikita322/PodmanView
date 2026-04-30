@@ -19,7 +19,6 @@ const (
 type User struct {
 	Username string `json:"username"`
 	UID      string `json:"uid"`
-	GID      string `json:"gid"`
 	Role     Role   `json:"role"`
 }
 
@@ -79,7 +78,6 @@ func (p *PAMAuth) Authenticate(username, password string) (*User, error) {
 	return &User{
 		Username: username,
 		UID:      u.Uid,
-		GID:      u.Gid,
 		Role:     role,
 	}, nil
 }

@@ -9,15 +9,6 @@ import (
 	"sync"
 )
 
-// LogLevel определяет уровень логирования
-type LogLevel int
-
-const (
-	LevelInfo LogLevel = iota
-	LevelError
-	LevelFatal
-)
-
 const (
 	defaultMaxSize    = 10 * 1024 * 1024 // 10 MB
 	defaultMaxBackups = 3
@@ -214,30 +205,6 @@ func (l *Logger) Errorln(v ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.errorLogger.Println(v...)
-}
-
-// Fatal пишет сообщение об ошибке в error.log и завершает программу
-func (l *Logger) Fatal(v ...interface{}) {
-	l.mu.Lock()
-	l.errorLogger.Print(v...)
-	l.mu.Unlock()
-	os.Exit(1)
-}
-
-// Fatalf пишет форматированное сообщение об ошибке в error.log и завершает программу
-func (l *Logger) Fatalf(format string, v ...interface{}) {
-	l.mu.Lock()
-	l.errorLogger.Printf(format, v...)
-	l.mu.Unlock()
-	os.Exit(1)
-}
-
-// Fatalln пишет сообщение об ошибке с новой строкой в error.log и завершает программу
-func (l *Logger) Fatalln(v ...interface{}) {
-	l.mu.Lock()
-	l.errorLogger.Println(v...)
-	l.mu.Unlock()
-	os.Exit(1)
 }
 
 // Writer возвращает io.Writer для записи в app.log

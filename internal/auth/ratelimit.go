@@ -90,12 +90,6 @@ func (rl *LoginRateLimiter) Allow(ip string) (bool, int) {
 	return true, 0
 }
 
-// RecordFailure records a failed login attempt
-// Call this after a failed authentication
-func (rl *LoginRateLimiter) RecordFailure(ip string) {
-	// Allow() already increments, this is for explicit tracking if needed
-}
-
 // Reset clears the rate limit for an IP (e.g., after successful login)
 func (rl *LoginRateLimiter) Reset(ip string) {
 	rl.mu.Lock()

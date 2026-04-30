@@ -1,19 +1,5 @@
 package mqtt
 
-// SensorType defines the type of sensor for Home Assistant
-type SensorType string
-
-const (
-	SensorTypeTemperature SensorType = "temperature"
-	SensorTypeHumidity    SensorType = "humidity"
-	SensorTypePower       SensorType = "power"
-	SensorTypeVoltage     SensorType = "voltage"
-	SensorTypeCurrent     SensorType = "current"
-	SensorTypeFrequency   SensorType = "frequency"
-	SensorTypePercentage  SensorType = "percentage"
-	SensorTypeBinary      SensorType = "binary_sensor"
-)
-
 // SensorData represents sensor data for MQTT publishing
 type SensorData struct {
 	ID         string                 // Unique sensor ID (will be sanitized)
@@ -25,9 +11,8 @@ type SensorData struct {
 // SensorConfig contains sensor configuration for Home Assistant Discovery
 type SensorConfig struct {
 	// Basic parameters
-	SensorID   string     // Unique sensor ID
-	Name       string     // Display name
-	SensorType SensorType // Sensor type (temperature, humidity, etc.)
+	SensorID string // Unique sensor ID
+	Name     string // Display name
 
 	// Units of measurement
 	Unit string // °C, %, W, V, A, Hz, etc.

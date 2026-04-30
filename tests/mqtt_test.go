@@ -158,7 +158,6 @@ func TestDiscoveryManagerRepublishing(t *testing.T) {
 		{
 			SensorID:   "test_sensor_1",
 			Name:       "Test Sensor 1",
-			SensorType: mqtt.SensorTypeTemperature,
 			Unit:       "°C",
 		},
 	}
@@ -201,7 +200,6 @@ func TestDiscoveryConfigCaching(t *testing.T) {
 		{
 			SensorID:        "cpu0_temp",
 			Name:            "CPU 0 Temperature",
-			SensorType:      mqtt.SensorTypeTemperature,
 			Unit:            "°C",
 			DeviceClass:     "temperature",
 			StateClass:      "measurement",
@@ -217,7 +215,6 @@ func TestDiscoveryConfigCaching(t *testing.T) {
 		{
 			SensorID:    "cpu1_temp",
 			Name:        "CPU 1 Temperature",
-			SensorType:  mqtt.SensorTypeTemperature,
 			Unit:        "°C",
 			DeviceClass: "temperature",
 			StateClass:  "measurement",
@@ -232,39 +229,6 @@ func TestDiscoveryConfigCaching(t *testing.T) {
 	}
 
 	// Test passes if no errors occur and configs are cached internally
-}
-
-// TestSensorTypes tests sensor type constants
-func TestSensorTypes(t *testing.T) {
-	tests := []struct {
-		name       string
-		sensorType mqtt.SensorType
-		expected   string
-	}{
-		{
-			name:       "temperature type",
-			sensorType: mqtt.SensorTypeTemperature,
-			expected:   "temperature",
-		},
-		{
-			name:       "humidity type",
-			sensorType: mqtt.SensorTypeHumidity,
-			expected:   "humidity",
-		},
-		{
-			name:       "power type",
-			sensorType: mqtt.SensorTypePower,
-			expected:   "power",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if string(tt.sensorType) != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, string(tt.sensorType))
-			}
-		})
-	}
 }
 
 // TestSensorDataStructure tests SensorData structure
@@ -309,7 +273,6 @@ func TestSensorConfigStructure(t *testing.T) {
 	config := &mqtt.SensorConfig{
 		SensorID:          "cpu_temp",
 		Name:              "CPU Temperature",
-		SensorType:        mqtt.SensorTypeTemperature,
 		Unit:              "°C",
 		StateTopic:        "sensor/cpu_temp/state",
 		AttributesTopic:   "sensor/cpu_temp/attributes",
@@ -400,7 +363,6 @@ func BenchmarkDiscoveryConfigGeneration(b *testing.B) {
 	config := &mqtt.SensorConfig{
 		SensorID:   "bench_sensor",
 		Name:       "Bench Sensor",
-		SensorType: mqtt.SensorTypeTemperature,
 		Unit:       "°C",
 		StateTopic: "sensor/bench/state",
 	}

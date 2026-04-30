@@ -81,19 +81,4 @@ func (m *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// RefreshToken creates new token with extended expiration
-func (m *JWTManager) RefreshToken(tokenString string) (string, error) {
-	claims, err := m.ValidateToken(tokenString)
-	if err != nil {
-		return "", err
-	}
 
-	// Create user from claims
-	user := &User{
-		Username: claims.Username,
-		UID:      claims.UID,
-		Role:     claims.Role,
-	}
-
-	return m.GenerateToken(user)
-}
