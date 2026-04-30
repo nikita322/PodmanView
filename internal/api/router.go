@@ -118,6 +118,9 @@ func (s *Server) setupRoutes() {
 	fileManagerHandler := NewFileManagerHandler(s.eventStore, "", s.logger) // Empty baseDir means use home dir
 	pluginHandler := NewPluginHandler(s)
 
+	// Health check (no auth required)
+	r.Get("/api/health", s.Health)
+
 	// Public routes
 	r.Post("/api/auth/login", authHandler.Login)
 
@@ -250,6 +253,14 @@ func (s *Server) registerPluginRoutes(r chi.Router) {
 			}
 		}
 	}
+}
+
+// Health returns the health status of the server
+func (s *Server) Health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"version": s.version,
+	})
 }
 
 // serveIndex serves the main HTML page with version placeholders replaced
