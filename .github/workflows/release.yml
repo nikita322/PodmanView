@@ -17,11 +17,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
         with:
-          go-version: '1.21'
-          cache: true
+          platforms: arm64
 
       - name: Get version
         id: version
@@ -42,35 +41,35 @@ jobs:
           sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
           sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
 
-      - name: Cache apt packages
+      - name: Cache apt packages and Go modules
         uses: actions/cache@v4
         with:
           path: |
-            /var/cache/apt/archives
-            /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-arm64-${{ hashFiles('.github/workflows/release.yml') }}
+            /tmp/docker-cache/arm64/apt/archives
+            /tmp/docker-cache/arm64/apt/lists
+            /tmp/docker-cache/go-mod
+          key: docker-arm64-${{ hashFiles('go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-apt-arm64-
-
-      - name: Install cross-compiler and libpam
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libpam0g-dev:arm64
+            docker-arm64-
 
       - name: Build
-        env:
-          CC: aarch64-linux-gnu-gcc
-          CXX: aarch64-linux-gnu-g++
-          CGO_ENABLED: 1
-          GOOS: linux
-          GOARCH: arm64
-          CGO_CFLAGS: "-I/usr/include"
-          CGO_LDFLAGS: "-L/usr/lib/aarch64-linux-gnu"
-          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
+          mkdir -p /tmp/docker-cache/arm64/apt/archives /tmp/docker-cache/arm64/apt/lists /tmp/docker-cache/go-mod
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/workspace \
+            -v /tmp/docker-cache/arm64/apt/archives:/var/cache/apt/archives \
+            -v /tmp/docker-cache/arm64/apt/lists:/var/lib/apt/lists \
+            -v /tmp/docker-cache/go-mod:/go/pkg/mod \
+            -w /workspace \
+            -e VERSION="${{ steps.version.outputs.VERSION }}" \
+            -e GOPATH=/go \
+            debian:trixie-slim \
+            bash -c '
+              apt-get update && \
+              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
+              go mod tidy && \
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
+            '
           tar -czvf podmanview-linux-arm64.tar.gz podmanview web/
 
       - name: Upload artifact
@@ -88,11 +87,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
         with:
-          go-version: '1.21'
-          cache: true
+          platforms: riscv64
 
       - name: Get version
         id: version
@@ -113,35 +111,35 @@ jobs:
           sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
           sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
 
-      - name: Cache apt packages
+      - name: Cache apt packages and Go modules
         uses: actions/cache@v4
         with:
           path: |
-            /var/cache/apt/archives
-            /var/lib/apt/lists
-          key: ${{ runner.os }}-apt-riscv64-${{ hashFiles('.github/workflows/release.yml') }}
+            /tmp/docker-cache/riscv64/apt/archives
+            /tmp/docker-cache/riscv64/apt/lists
+            /tmp/docker-cache/go-mod
+          key: docker-riscv64-${{ hashFiles('go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-apt-riscv64-
-
-      - name: Install cross-compiler and libpam
-        run: |
-          sudo dpkg --add-architecture riscv64
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-riscv64-linux-gnu libpam0g-dev:riscv64
+            docker-riscv64-
 
       - name: Build
-        env:
-          CC: riscv64-linux-gnu-gcc
-          CXX: riscv64-linux-gnu-g++
-          CGO_ENABLED: 1
-          GOOS: linux
-          GOARCH: riscv64
-          CGO_CFLAGS: "-I/usr/include"
-          CGO_LDFLAGS: "-L/usr/lib/riscv64-linux-gnu"
-          PKG_CONFIG_PATH: /usr/lib/riscv64-linux-gnu/pkgconfig
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
+          mkdir -p /tmp/docker-cache/riscv64/apt/archives /tmp/docker-cache/riscv64/apt/lists /tmp/docker-cache/go-mod
+          docker run --rm --platform linux/riscv64 \
+            -v ${{ github.workspace }}:/workspace \
+            -v /tmp/docker-cache/riscv64/apt/archives:/var/cache/apt/archives \
+            -v /tmp/docker-cache/riscv64/apt/lists:/var/lib/apt/lists \
+            -v /tmp/docker-cache/go-mod:/go/pkg/mod \
+            -w /workspace \
+            -e VERSION="${{ steps.version.outputs.VERSION }}" \
+            -e GOPATH=/go \
+            docker.io/riscv64/debian:trixie-slim \
+            bash -c '
+              apt-get update && \
+              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
+              go mod tidy && \
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
+            '
           tar -czvf podmanview-linux-riscv64.tar.gz podmanview web/
 
       - name: Upload artifact
