@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -17,6 +16,7 @@ import (
 
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
+	"podmanview/internal/logger"
 )
 
 // Global constants for MIME type detection (performance optimization)
@@ -94,6 +94,7 @@ type FileManagerHandler struct {
 	baseDir       string // Base directory for file operations (e.g., /home)
 	maxUploadSize int64  // Maximum upload size in bytes (default 100MB)
 	pathCache     *pathValidationCache
+	logger        *logger.Logger
 }
 
 // pathValidationCache caches validated paths to avoid repeated validation
@@ -104,7 +105,7 @@ type pathValidationCache struct {
 }
 
 // NewFileManagerHandler creates new file manager handler
-func NewFileManagerHandler(eventStore *events.Store, baseDir string) *FileManagerHandler {
+func NewFileManagerHandler(eventStore *events.Store, baseDir string, logger *logger.Logger) *FileManagerHandler {
 	// If baseDir is empty, use user's home directory or root
 	if baseDir == "" {
 		if homeDir, err := os.UserHomeDir(); err == nil {
@@ -117,7 +118,9 @@ func NewFileManagerHandler(eventStore *events.Store, baseDir string) *FileManage
 	// Clean and resolve absolute path
 	baseDir, err := filepath.Abs(baseDir)
 	if err != nil {
-		log.Printf("Warning: failed to resolve base directory, using /: %v", err)
+		if logger != nil {
+			logger.Printf("Warning: failed to resolve base directory, using /: %v", err)
+		}
 		baseDir = "/"
 	}
 
@@ -129,6 +132,7 @@ func NewFileManagerHandler(eventStore *events.Store, baseDir string) *FileManage
 			cache:   make(map[string]string),
 			maxSize: 1000, // Cache up to 1000 paths
 		},
+		logger: logger,
 	}
 }
 
@@ -293,7 +297,7 @@ func (h *FileManagerHandler) Browse(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(absPath)
 	if err != nil {
 		http.Error(w, "Failed to read directory", http.StatusInternalServerError)
-		log.Printf("Failed to read directory %s: %v", absPath, err)
+		h.logger.Printf("Failed to read directory %s: %v", absPath, err)
 		return
 	}
 
@@ -397,7 +401,7 @@ func (h *FileManagerHandler) Download(w http.ResponseWriter, r *http.Request) {
 	file, err := os.Open(absPath)
 	if err != nil {
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
-		log.Printf("Failed to open file %s: %v", absPath, err)
+		h.logger.Printf("Failed to open file %s: %v", absPath, err)
 		return
 	}
 	defer file.Close()
@@ -418,7 +422,7 @@ func (h *FileManagerHandler) Download(w http.ResponseWriter, r *http.Request) {
 	// Stream file to client
 	_, err = io.Copy(w, file)
 	if err != nil {
-		log.Printf("Failed to send file %s: %v", absPath, err)
+		h.logger.Printf("Failed to send file %s: %v", absPath, err)
 		return
 	}
 
@@ -519,7 +523,7 @@ func (h *FileManagerHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			os.Remove(filepath.Join(absTargetDir, filename))
 		}
 		http.Error(w, uploadErr.Error(), http.StatusInternalServerError)
-		log.Printf("Upload failed: %v", uploadErr)
+		h.logger.Printf("Upload failed: %v", uploadErr)
 		return
 	}
 
@@ -576,7 +580,7 @@ func (h *FileManagerHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	err = os.RemoveAll(absPath)
 	if err != nil {
 		http.Error(w, "Failed to delete", http.StatusInternalServerError)
-		log.Printf("Failed to delete %s: %v", absPath, err)
+		h.logger.Printf("Failed to delete %s: %v", absPath, err)
 		return
 	}
 
@@ -651,7 +655,7 @@ func (h *FileManagerHandler) MkDir(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Directory already exists", http.StatusConflict)
 		} else {
 			http.Error(w, "Failed to create directory", http.StatusInternalServerError)
-			log.Printf("Failed to create directory %s: %v", newDirPath, err)
+			h.logger.Printf("Failed to create directory %s: %v", newDirPath, err)
 		}
 		return
 	}
@@ -729,7 +733,7 @@ func (h *FileManagerHandler) CreateFile(w http.ResponseWriter, r *http.Request) 
 	file, err := os.Create(newFilePath)
 	if err != nil {
 		http.Error(w, "Failed to create file", http.StatusInternalServerError)
-		log.Printf("Failed to create file %s: %v", newFilePath, err)
+		h.logger.Printf("Failed to create file %s: %v", newFilePath, err)
 		return
 	}
 	file.Close()
@@ -812,7 +816,7 @@ func (h *FileManagerHandler) Rename(w http.ResponseWriter, r *http.Request) {
 	err = os.Rename(absOldPath, absNewPath)
 	if err != nil {
 		http.Error(w, "Failed to rename", http.StatusInternalServerError)
-		log.Printf("Failed to rename %s to %s: %v", absOldPath, absNewPath, err)
+		h.logger.Printf("Failed to rename %s to %s: %v", absOldPath, absNewPath, err)
 		return
 	}
 
@@ -885,7 +889,7 @@ func (h *FileManagerHandler) ReadFile(w http.ResponseWriter, r *http.Request) {
 		content, err := os.ReadFile(absPath)
 		if err != nil {
 			http.Error(w, "Failed to read file", http.StatusInternalServerError)
-			log.Printf("Failed to read file %s: %v", absPath, err)
+			h.logger.Printf("Failed to read file %s: %v", absPath, err)
 			return
 		}
 
@@ -981,7 +985,7 @@ func (h *FileManagerHandler) StreamFile(w http.ResponseWriter, r *http.Request) 
 	file, err := os.Open(absPath)
 	if err != nil {
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
-		log.Printf("Failed to open file %s: %v", absPath, err)
+		h.logger.Printf("Failed to open file %s: %v", absPath, err)
 		return
 	}
 	defer file.Close()
@@ -1013,7 +1017,7 @@ func (h *FileManagerHandler) StreamFile(w http.ResponseWriter, r *http.Request) 
 	// Stream entire file
 	_, err = io.Copy(w, file)
 	if err != nil {
-		log.Printf("Failed to stream file %s: %v", absPath, err)
+		h.logger.Printf("Failed to stream file %s: %v", absPath, err)
 		return
 	}
 
@@ -1061,7 +1065,7 @@ func (h *FileManagerHandler) serveFileRange(w http.ResponseWriter, r *http.Reque
 	// Stream the requested range
 	_, err := io.CopyN(w, file, contentLength)
 	if err != nil && err != io.EOF {
-		log.Printf("Failed to stream file range: %v", err)
+		h.logger.Printf("Failed to stream file range: %v", err)
 	}
 }
 
@@ -1115,7 +1119,7 @@ func (h *FileManagerHandler) WriteFile(w http.ResponseWriter, r *http.Request) {
 	err = os.WriteFile(absPath, []byte(req.Content), stat.Mode())
 	if err != nil {
 		http.Error(w, "Failed to write file", http.StatusInternalServerError)
-		log.Printf("Failed to write file %s: %v", absPath, err)
+		h.logger.Printf("Failed to write file %s: %v", absPath, err)
 		return
 	}
 

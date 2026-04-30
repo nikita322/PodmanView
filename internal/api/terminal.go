@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
+	"podmanview/internal/logger"
 	"podmanview/internal/podman"
 )
 
@@ -39,15 +39,17 @@ type TerminalHandler struct {
 	eventStore     *events.Store
 	historyHandler *HistoryHandler
 	upgrader       websocket.Upgrader
+	logger         *logger.Logger
 }
 
 // NewTerminalHandler creates new terminal handler
-func NewTerminalHandler(client *podman.Client, wsTokenStore *auth.WSTokenStore, eventStore *events.Store, historyHandler *HistoryHandler) *TerminalHandler {
+func NewTerminalHandler(client *podman.Client, wsTokenStore *auth.WSTokenStore, eventStore *events.Store, historyHandler *HistoryHandler, logger *logger.Logger) *TerminalHandler {
 	h := &TerminalHandler{
 		client:         client,
 		wsTokenStore:   wsTokenStore,
 		eventStore:     eventStore,
 		historyHandler: historyHandler,
+		logger:         logger,
 	}
 
 	h.upgrader = websocket.Upgrader{
@@ -65,18 +67,18 @@ func (h *TerminalHandler) checkOrigin(r *http.Request) bool {
 	// Get token from query parameter
 	token := r.URL.Query().Get("ws_token")
 	if token == "" {
-		log.Printf("WebSocket rejected: missing ws_token")
+		h.logger.Printf("WebSocket rejected: missing ws_token")
 		return false
 	}
 
 	// Validate token (allows reconnection within grace period)
 	username, valid := h.wsTokenStore.Validate(token)
 	if !valid {
-		log.Printf("WebSocket rejected: invalid or expired ws_token (token may have exceeded max uses or grace period)")
+		h.logger.Printf("WebSocket rejected: invalid or expired ws_token (token may have exceeded max uses or grace period)")
 		return false
 	}
 
-	log.Printf("WebSocket connection authorized for user: %s (reconnection supported for %v)", username, auth.WSTokenGracePeriod)
+	h.logger.Printf("WebSocket connection authorized for user: %s (reconnection supported for %v)", username, auth.WSTokenGracePeriod)
 	return true
 }
 
@@ -100,7 +102,7 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 	// Upgrade HTTP to WebSocket
 	ws, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		h.logger.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer ws.Close()
@@ -134,7 +136,7 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 	// Get PTY
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("Failed to start PTY: %v", err)
+		h.logger.Printf("Failed to start PTY: %v", err)
 		ws.WriteMessage(websocket.TextMessage, []byte("Failed to start shell: "+err.Error()))
 		return
 	}
@@ -159,7 +161,7 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 			case <-ticker.C:
 				ws.SetWriteDeadline(time.Now().Add(writeWait))
 				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
-					log.Printf("Failed to send ping: %v", err)
+					h.logger.Printf("Failed to send ping: %v", err)
 					return
 				}
 			}
@@ -244,7 +246,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	cmd := []string{"/bin/sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"}
 	execResp, err := h.client.CreateExecWithEnv(r.Context(), containerID, cmd, env)
 	if err != nil {
-		log.Printf("Failed to create exec: %v", err)
+		h.logger.Printf("Failed to create exec: %v", err)
 		http.Error(w, "Failed to create exec: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -253,7 +255,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	socketPath := h.client.GetSocketPath()
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		log.Printf("Failed to connect to socket: %v", err)
+		h.logger.Printf("Failed to connect to socket: %v", err)
 		http.Error(w, "Failed to connect to Podman", http.StatusInternalServerError)
 		return
 	}
@@ -272,7 +274,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	_, err = conn.Write([]byte(httpReq))
 	if err != nil {
 		conn.Close()
-		log.Printf("Failed to send exec start: %v", err)
+		h.logger.Printf("Failed to send exec start: %v", err)
 		http.Error(w, "Failed to start exec", http.StatusInternalServerError)
 		return
 	}
@@ -282,17 +284,17 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
 		conn.Close()
-		log.Printf("Failed to read response: %v", err)
+		h.logger.Printf("Failed to read response: %v", err)
 		http.Error(w, "Failed to start exec", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Exec start response: %d %s", resp.StatusCode, resp.Status)
+	h.logger.Printf("Exec start response: %d %s", resp.StatusCode, resp.Status)
 
 	if resp.StatusCode != http.StatusSwitchingProtocols && resp.StatusCode != http.StatusOK {
 		conn.Close()
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Exec start failed: %d %s", resp.StatusCode, string(body))
+		h.logger.Printf("Exec start failed: %d %s", resp.StatusCode, string(body))
 		http.Error(w, "Exec start failed", http.StatusInternalServerError)
 		return
 	}
@@ -301,7 +303,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	ws, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		conn.Close()
-		log.Printf("WebSocket upgrade failed: %v", err)
+		h.logger.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 
@@ -332,7 +334,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			case <-ticker.C:
 				ws.SetWriteDeadline(time.Now().Add(writeWait))
 				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
-					log.Printf("Container terminal: Failed to send ping: %v", err)
+					h.logger.Printf("Container terminal: Failed to send ping: %v", err)
 					return
 				}
 			}
@@ -355,13 +357,13 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					if err != io.EOF {
-						log.Printf("Read from container error: %v", err)
+						h.logger.Printf("Read from container error: %v", err)
 					}
 					return
 				}
 				if n > 0 {
 					if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
-						log.Printf("WebSocket write error: %v", err)
+						h.logger.Printf("WebSocket write error: %v", err)
 						return
 					}
 				}
@@ -380,7 +382,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			_, message, err := ws.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("WebSocket read error: %v", err)
+					h.logger.Printf("WebSocket read error: %v", err)
 				}
 				ws.Close()
 				conn.Close()
@@ -392,7 +394,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(message, &msg); err != nil {
 				// Treat as raw stdin
 				if _, err := conn.Write(message); err != nil {
-					log.Printf("Container write error: %v", err)
+					h.logger.Printf("Container write error: %v", err)
 					ws.Close()
 					conn.Close()
 					return
@@ -403,7 +405,7 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			switch msg.Type {
 			case "stdin":
 				if _, err := conn.Write([]byte(msg.Data)); err != nil {
-					log.Printf("Container write error: %v", err)
+					h.logger.Printf("Container write error: %v", err)
 					ws.Close()
 					conn.Close()
 					return

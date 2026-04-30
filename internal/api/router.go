@@ -112,10 +112,10 @@ func (s *Server) setupRoutes() {
 	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore)
 	imageHandler := NewImageHandler(s.podmanClient, s.eventStore)
 	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore, s.pluginRegistry)
-	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
+	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler, s.logger)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore, s.logger)
-	fileManagerHandler := NewFileManagerHandler(s.eventStore, "") // Empty baseDir means use home dir
+	fileManagerHandler := NewFileManagerHandler(s.eventStore, "", s.logger) // Empty baseDir means use home dir
 	pluginHandler := NewPluginHandler(s)
 
 	// Public routes
