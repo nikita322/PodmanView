@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 )
 
@@ -46,6 +47,9 @@ type Plugin struct {
 	subscribed     bool
 	backgroundCtx  context.Context
 	backgroundStop context.CancelFunc
+	mqttEnabled    bool
+	mqttSettings   mqtt.Config
+	mqttClient     *mqtt.Client
 }
 
 // New creates a new reactor plugin instance
@@ -61,6 +65,9 @@ func New() *Plugin {
 		logs:           make([]ExecutionLog, 0, maxLogEntries),
 		compiledRegex:  make(map[string]*regexp.Regexp),
 		prevMatchState: make(map[condStateKey]bool),
+		mqttSettings: mqtt.Config{
+			Prefix: "podmanview",
+		},
 	}
 }
 
@@ -68,6 +75,20 @@ func New() *Plugin {
 func (p *Plugin) Init(ctx context.Context, deps *plugins.PluginDependencies) error {
 	p.SetDependencies(deps)
 	p.loadBlocks()
+	p.loadSettings()
+
+	// Initialize MQTT client if enabled and configured
+	if p.mqttEnabled && p.mqttSettings.Broker != "" {
+		if err := p.createMQTTClient(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
+			}
+		} else if err := p.mqttClient.Connect(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to connect to MQTT: %v", p.Name(), err)
+			}
+		}
+	}
 
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Plugin initialized with %d blocks", p.Name(), len(p.blocks))
@@ -93,6 +114,7 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	p.mu.Unlock()
 
 	p.unsubscribeAll()
+	p.disconnectMQTT()
 
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Plugin stopped", p.Name())
@@ -123,6 +145,9 @@ func (p *Plugin) Routes() []plugins.Route {
 		{Method: "POST", Path: "/api/plugins/reactor/blocks/test", Handler: p.handleTestBlock, RequireAuth: true},
 		{Method: "GET", Path: "/api/plugins/reactor/logs", Handler: p.handleGetLogs, RequireAuth: true},
 		{Method: "GET", Path: "/api/plugins/reactor/status", Handler: p.handleGetStatus, RequireAuth: true},
+		{Method: "GET", Path: "/api/plugins/reactor/settings", Handler: p.handleGetSettings, RequireAuth: true},
+		{Method: "POST", Path: "/api/plugins/reactor/settings", Handler: p.handleUpdateSettings, RequireAuth: true},
+		{Method: "POST", Path: "/api/plugins/reactor/mqtt", Handler: p.handleToggleMQTT, RequireAuth: true},
 	}
 }
 
@@ -147,27 +172,27 @@ func (p *Plugin) resubscribe() error {
 			break
 		}
 	}
+	client := p.mqttClient
 	p.mu.RUnlock()
 
 	if !hasEnabled {
 		return nil
 	}
 
-	deps := p.Deps()
-	if deps == nil || deps.MQTTClient == nil {
+	if client == nil {
 		if p.Logger() != nil {
 			p.Logger().Printf("[%s] MQTT client not configured, skipping subscription", p.Name())
 		}
 		return nil
 	}
 
-	if !deps.MQTTClient.IsConnected() {
-		if err := deps.MQTTClient.Connect(); err != nil {
+	if !client.IsConnected() {
+		if err := client.Connect(); err != nil {
 			return fmt.Errorf("failed to connect MQTT: %w", err)
 		}
 	}
 
-	if err := deps.MQTTClient.SubscribeRaw("#", 1, p.onMessage); err != nil {
+	if err := client.SubscribeRaw("#", 1, p.onMessage); err != nil {
 		return fmt.Errorf("failed to subscribe to #: %w", err)
 	}
 
@@ -193,9 +218,12 @@ func (p *Plugin) unsubscribeAll() {
 		return
 	}
 
-	deps := p.Deps()
-	if deps != nil && deps.MQTTClient != nil && deps.MQTTClient.IsConnected() {
-		deps.MQTTClient.Unsubscribe("#")
+	p.mu.RLock()
+	client := p.mqttClient
+	p.mu.RUnlock()
+
+	if client != nil && client.IsConnected() {
+		client.Unsubscribe("#")
 	}
 }
 
@@ -453,19 +481,22 @@ func (p *Plugin) executeMQTT(cfg *MQTTActionConfig, triggerTopic string, mqttPay
 		return fmt.Errorf("MQTT action config is nil")
 	}
 
-	deps := p.Deps()
-	if deps == nil || deps.MQTTClient == nil {
+	p.mu.RLock()
+	client := p.mqttClient
+	p.mu.RUnlock()
+
+	if client == nil {
 		return fmt.Errorf("MQTT client not available")
 	}
 
-	if !deps.MQTTClient.IsConnected() {
+	if !client.IsConnected() {
 		return fmt.Errorf("MQTT client not connected")
 	}
 
 	targetTopic := renderTemplate(cfg.Topic, triggerTopic, mqttPayload)
 	payload := renderTemplate(cfg.Payload, triggerTopic, mqttPayload)
 
-	return deps.MQTTClient.PublishRaw(targetTopic, []byte(payload), cfg.Retain)
+	return client.PublishRaw(targetTopic, []byte(payload), cfg.Retain)
 }
 
 // executeDelay pauses execution for the specified duration
@@ -531,4 +562,76 @@ func (p *Plugin) invalidateCaches() {
 // generateID creates a new unique block ID
 func generateID() string {
 	return fmt.Sprintf("%x", time.Now().UnixNano())[4:12]
+}
+
+// loadSettings loads plugin settings from storage
+func (p *Plugin) loadSettings() {
+	deps := p.Deps()
+	if deps == nil || deps.Storage == nil {
+		return
+	}
+
+	// Load MQTT enabled state
+	mqttEnabled, err := deps.Storage.GetBool(p.Name(), "mqttEnabled")
+	if err == nil {
+		p.mu.Lock()
+		p.mqttEnabled = mqttEnabled
+		p.mu.Unlock()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] Loaded MQTT enabled state: %v", p.Name(), mqttEnabled)
+		}
+	} else {
+		deps.Storage.SetBool(p.Name(), "mqttEnabled", false)
+	}
+
+	// Load MQTT settings
+	var settings mqtt.Config
+	if err := deps.Storage.GetJSON(p.Name(), "mqttSettings", &settings); err == nil {
+		p.mu.Lock()
+		p.mqttSettings = settings
+		if p.mqttSettings.Prefix == "" {
+			p.mqttSettings.Prefix = "podmanview"
+		}
+		p.mu.Unlock()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] Loaded MQTT settings: broker=%s", p.Name(), settings.Broker)
+		}
+	} else {
+		deps.Storage.SetJSON(p.Name(), "mqttSettings", p.mqttSettings)
+	}
+}
+
+// createMQTTClient creates a new MQTT client based on current settings
+func (p *Plugin) createMQTTClient() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Disconnect existing client if any
+	if p.mqttClient != nil {
+		p.mqttClient.Disconnect()
+		p.mqttClient = nil
+	}
+
+	if p.mqttSettings.Broker == "" {
+		return nil
+	}
+
+	client, err := mqtt.New(p.mqttSettings, p.Logger())
+	if err != nil {
+		return err
+	}
+
+	p.mqttClient = client
+	return nil
+}
+
+// disconnectMQTT disconnects the MQTT client
+func (p *Plugin) disconnectMQTT() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.mqttClient != nil && p.mqttClient.IsConnected() {
+		p.mqttClient.Disconnect()
+	}
+	p.mqttClient = nil
 }

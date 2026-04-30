@@ -13,12 +13,12 @@ import (
 
 // Config holds MQTT client configuration
 type Config struct {
-	Broker   string // MQTT broker address (e.g., "tcp://localhost:1883")
-	ClientID string // Unique client ID
-	Username string // MQTT username (optional)
-	Password string // MQTT password (optional)
-	Prefix   string // Topic prefix for all messages
-	UseTLS   bool   // Enable TLS connection
+	Broker   string `json:"broker"`   // MQTT broker address (e.g., "tcp://localhost:1883")
+	ClientID string `json:"clientId"` // Unique client ID
+	Username string `json:"username"` // MQTT username (optional)
+	Password string `json:"password"` // MQTT password (optional)
+	Prefix   string `json:"prefix"`   // Topic prefix for all messages
+	UseTLS   bool   `json:"useTls"`   // Enable TLS connection
 }
 
 // MessageHandler is a callback for incoming MQTT messages

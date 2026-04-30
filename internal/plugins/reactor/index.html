@@ -14,17 +14,52 @@
         </div>
     </div>
 
-    <!-- Status -->
+    <!-- MQTT Settings -->
     <div class="info-section">
-        <h2>Status</h2>
+        <h2>MQTT Settings</h2>
         <div class="info-grid">
             <div class="info-item">
-                <span class="info-label">MQTT:</span>
+                <span class="info-label">MQTT Status:</span>
                 <span class="info-value" id="reactor-mqtt-status">Loading...</span>
             </div>
             <div class="info-item">
-                <span class="info-label">Blocks:</span>
-                <span class="info-value" id="reactor-block-count">-</span>
+                <span class="info-label">Enable MQTT:</span>
+                <label class="toggle-label">
+                    <input type="checkbox" id="reactor-mqtt-toggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text" id="reactor-mqtt-toggle-status">Disabled</span>
+                </label>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Broker URL:</span>
+                <input type="text" id="reactor-mqtt-broker" placeholder="tcp://localhost:1883" style="width: 100%; max-width: 400px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Client ID:</span>
+                <input type="text" id="reactor-mqtt-client-id" placeholder="podmanview-reactor" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Topic Prefix:</span>
+                <input type="text" id="reactor-mqtt-prefix" placeholder="podmanview" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Username:</span>
+                <input type="text" id="reactor-mqtt-username" placeholder="(optional)" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Password:</span>
+                <input type="password" id="reactor-mqtt-password" placeholder="(optional)" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Use TLS:</span>
+                <label class="toggle-label">
+                    <input type="checkbox" id="reactor-mqtt-use-tls">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text" id="reactor-mqtt-tls-status">Disabled</span>
+                </label>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <button id="reactor-save-settings-btn" class="btn btn-primary">Save Settings</button>
             </div>
         </div>
     </div>
@@ -254,6 +289,7 @@
             if (this.initialized) return;
             this.initialized = true;
             this.bindEvents();
+            this.loadSettings();
             this.loadStatus();
             this.loadBlocks();
             this.loadLogs();
@@ -276,6 +312,9 @@
             $('reactor-modal-save')?.addEventListener('click', () => this.saveBlock());
             $('reactor-add-condition')?.addEventListener('click', () => this.addConditionRow());
             $('reactor-refresh-logs')?.addEventListener('click', () => this.loadLogs());
+            $('reactor-save-settings-btn')?.addEventListener('click', () => this.saveSettings());
+            $('reactor-mqtt-toggle')?.addEventListener('change', (e) => this.toggleMQTT(e.target.checked));
+            $('reactor-mqtt-use-tls')?.addEventListener('change', (e) => this.updateTLSText(e.target.checked));
             $('reactor-help-toggle')?.addEventListener('click', () => {
                 const content = $('reactor-help-content');
                 const arrow = $('reactor-help-arrow');
@@ -290,6 +329,92 @@
 
         authHeaders() {
             return { 'Authorization': 'Bearer ' + localStorage.getItem('token'), 'Content-Type': 'application/json' };
+        },
+
+        async loadSettings() {
+            try {
+                const res = await fetch(API + '/settings', { headers: this.authHeaders() });
+                const settings = await res.json();
+                const mqtt = settings.mqtt || {};
+                document.getElementById('reactor-mqtt-broker').value = mqtt.broker || '';
+                document.getElementById('reactor-mqtt-client-id').value = mqtt.clientId || '';
+                document.getElementById('reactor-mqtt-prefix').value = mqtt.prefix || '';
+                document.getElementById('reactor-mqtt-username').value = mqtt.username || '';
+                document.getElementById('reactor-mqtt-password').value = mqtt.password || '';
+                document.getElementById('reactor-mqtt-use-tls').checked = mqtt.useTls || false;
+                this.updateTLSText(mqtt.useTls || false);
+
+                const mqttToggle = document.getElementById('reactor-mqtt-toggle');
+                const mqttToggleStatus = document.getElementById('reactor-mqtt-toggle-status');
+                mqttToggle.checked = settings.mqttEnabled || false;
+                mqttToggleStatus.textContent = settings.mqttEnabled ? 'Enabled' : 'Disabled';
+            } catch (e) { console.error('[reactor] settings error:', e); }
+        },
+
+        async saveSettings() {
+            const btn = document.getElementById('reactor-save-settings-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            try {
+                const settings = {
+                    mqttEnabled: document.getElementById('reactor-mqtt-toggle').checked,
+                    mqtt: {
+                        broker: document.getElementById('reactor-mqtt-broker').value.trim(),
+                        clientId: document.getElementById('reactor-mqtt-client-id').value.trim(),
+                        prefix: document.getElementById('reactor-mqtt-prefix').value.trim(),
+                        username: document.getElementById('reactor-mqtt-username').value.trim(),
+                        password: document.getElementById('reactor-mqtt-password').value,
+                        useTls: document.getElementById('reactor-mqtt-use-tls').checked
+                    }
+                };
+                const res = await fetch(API + '/settings', {
+                    method: 'POST',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify(settings)
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to save settings');
+                }
+                this.showSuccess('Settings saved successfully');
+                await this.loadSettings();
+                await this.loadStatus();
+            } catch (e) {
+                this.showError(e.message || 'Failed to save settings');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save Settings';
+            }
+        },
+
+        updateTLSText(enabled) {
+            const tlsStatus = document.getElementById('reactor-mqtt-tls-status');
+            if (tlsStatus) tlsStatus.textContent = enabled ? 'Enabled' : 'Disabled';
+        },
+
+        async toggleMQTT(enabled) {
+            const mqttToggle = document.getElementById('reactor-mqtt-toggle');
+            const originalState = !enabled;
+            mqttToggle.disabled = true;
+            try {
+                const res = await fetch(API + '/mqtt', {
+                    method: 'POST',
+                    headers: this.authHeaders(),
+                    body: JSON.stringify({ enabled })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to toggle MQTT');
+                }
+                this.showSuccess(enabled ? 'MQTT enabled' : 'MQTT disabled');
+                await this.loadSettings();
+                await this.loadStatus();
+            } catch (e) {
+                this.showError(e.message || 'Failed to toggle MQTT');
+                mqttToggle.checked = originalState;
+            } finally {
+                mqttToggle.disabled = false;
+            }
         },
 
         async loadStatus() {

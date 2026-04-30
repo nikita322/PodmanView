@@ -5,9 +5,22 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 
+	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 )
+
+// PluginSettings represents reactor plugin configuration
+type PluginSettings struct {
+	MQTTEnabled bool        `json:"mqttEnabled"`
+	MQTT        mqtt.Config `json:"mqtt"`
+}
+
+// MQTTToggleRequest represents request to toggle MQTT
+type MQTTToggleRequest struct {
+	Enabled bool `json:"enabled"`
+}
 
 // handleGetBlocks returns all reaction blocks
 func (p *Plugin) handleGetBlocks(w http.ResponseWriter, r *http.Request) {
@@ -216,11 +229,9 @@ func (p *Plugin) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 // handleGetStatus returns plugin status
 func (p *Plugin) handleGetStatus(w http.ResponseWriter, r *http.Request) {
-	deps := p.Deps()
-	mqttConfigured := deps != nil && deps.MQTTClient != nil
-	mqttConnected := mqttConfigured && deps.MQTTClient.IsConnected()
-
 	p.mu.RLock()
+	client := p.mqttClient
+	settings := p.mqttSettings
 	enabledCount := 0
 	for _, b := range p.blocks {
 		if b.Enabled {
@@ -228,8 +239,8 @@ func (p *Plugin) handleGetStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	status := map[string]interface{}{
-		"mqttConfigured": mqttConfigured,
-		"mqttConnected":  mqttConnected,
+		"mqttConfigured": settings.Broker != "",
+		"mqttConnected":  client != nil && client.IsConnected(),
 		"subscribed":     p.subscribed,
 		"blockCount":     len(p.blocks),
 		"enabledCount":   enabledCount,
@@ -237,6 +248,164 @@ func (p *Plugin) handleGetStatus(w http.ResponseWriter, r *http.Request) {
 	p.mu.RUnlock()
 
 	plugins.WriteJSON(w, http.StatusOK, status)
+}
+
+// handleGetSettings returns current plugin settings
+func (p *Plugin) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	mqttEnabled := p.mqttEnabled
+	settings := p.mqttSettings
+	p.mu.RUnlock()
+
+	plugins.WriteJSON(w, http.StatusOK, PluginSettings{
+		MQTTEnabled: mqttEnabled,
+		MQTT:        settings,
+	})
+}
+
+// handleUpdateSettings updates plugin settings
+func (p *Plugin) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var settings PluginSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate MQTT settings if enabled
+	if settings.MQTTEnabled && settings.MQTT.Broker == "" {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "MQTT broker is required when MQTT is enabled"})
+		return
+	}
+
+	deps := p.Deps()
+
+	p.mu.Lock()
+	mqttWasEnabled := p.mqttEnabled
+	p.mqttEnabled = settings.MQTTEnabled
+	p.mqttSettings = settings.MQTT
+	if p.mqttSettings.Prefix == "" {
+		p.mqttSettings.Prefix = "podmanview"
+	}
+	p.mu.Unlock()
+
+	// Save to storage
+	if deps != nil && deps.Storage != nil {
+		if err := deps.Storage.SetBool(p.Name(), "mqttEnabled", settings.MQTTEnabled); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to save MQTT enabled state: %v", p.Name(), err)
+			}
+		}
+		if err := deps.Storage.SetJSON(p.Name(), "mqttSettings", p.mqttSettings); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to save MQTT settings: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save MQTT settings"})
+			return
+		}
+	}
+
+	// Handle MQTT connection state changes
+	if settings.MQTTEnabled {
+		if err := p.createMQTTClient(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to create MQTT client: " + err.Error()})
+			return
+		}
+		if p.mqttClient != nil {
+			if err := p.mqttClient.Connect(); err != nil {
+				if p.Logger() != nil {
+					p.Logger().Printf("[%s] Failed to connect to MQTT broker: %v", p.Name(), err)
+				}
+				plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to connect to MQTT broker: " + err.Error()})
+				return
+			}
+		}
+	} else if mqttWasEnabled {
+		p.disconnectMQTT()
+	}
+
+	// Re-subscribe if needed
+	p.resubscribe()
+
+	if p.Logger() != nil {
+		p.Logger().Printf("[%s] Settings updated: mqttEnabled=%v", p.Name(), settings.MQTTEnabled)
+	}
+
+	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Settings updated successfully"})
+}
+
+// handleToggleMQTT enables or disables MQTT
+func (p *Plugin) handleToggleMQTT(w http.ResponseWriter, r *http.Request) {
+	var req MQTTToggleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	p.mu.RLock()
+	settings := p.mqttSettings
+	p.mu.RUnlock()
+
+	if settings.Broker == "" {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "MQTT is not configured. Please set MQTT broker in settings"})
+		return
+	}
+
+	p.mu.Lock()
+	p.mqttEnabled = req.Enabled
+	p.mu.Unlock()
+
+	deps := p.Deps()
+	if deps != nil && deps.Storage != nil {
+		if err := deps.Storage.SetBool(p.Name(), "mqttEnabled", req.Enabled); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to save MQTT enabled state: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save settings"})
+			return
+		}
+	}
+
+	if req.Enabled {
+		if err := p.createMQTTClient(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create MQTT client"})
+			return
+		}
+		if p.mqttClient != nil {
+			if err := p.mqttClient.Connect(); err != nil {
+				if p.Logger() != nil {
+					p.Logger().Printf("[%s] Failed to connect to MQTT broker: %v", p.Name(), err)
+				}
+				plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to MQTT broker"})
+				return
+			}
+		}
+		p.resubscribe()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] MQTT enabled", p.Name())
+		}
+	} else {
+		p.unsubscribeAll()
+		p.disconnectMQTT()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] MQTT disabled", p.Name())
+		}
+	}
+
+	status := "enabled"
+	if !req.Enabled {
+		status = "disabled"
+	}
+
+	plugins.WriteJSON(w, http.StatusOK, map[string]string{
+		"status":  "MQTT " + status + " successfully",
+		"enabled": strconv.FormatBool(req.Enabled),
+	})
 }
 
 // validateBlock performs validation on a reaction block

@@ -23,13 +23,6 @@ const (
 	EnvLogDir        = "PODMANVIEW_LOG_DIR"
 	EnvLogMaxSize    = "PODMANVIEW_LOG_MAX_SIZE"
 	EnvLogMaxBackups = "PODMANVIEW_LOG_MAX_BACKUPS"
-	// MQTT settings
-	EnvMQTTBroker   = "PODMANVIEW_MQTT_BROKER"
-	EnvMQTTClientID = "PODMANVIEW_MQTT_CLIENT_ID"
-	EnvMQTTUsername = "PODMANVIEW_MQTT_USERNAME"
-	EnvMQTTPassword = "PODMANVIEW_MQTT_PASSWORD"
-	EnvMQTTPrefix   = "PODMANVIEW_MQTT_PREFIX"
-	EnvMQTTUseTLS   = "PODMANVIEW_MQTT_USE_TLS"
 )
 
 // Default values
@@ -41,13 +34,6 @@ const (
 	DefaultLogDir        = "./logs"
 	DefaultLogMaxSize    = 10 // MB
 	DefaultLogMaxBackups = 3
-	// MQTT defaults
-	DefaultMQTTBroker   = ""
-	DefaultMQTTClientID = ""
-	DefaultMQTTUsername = ""
-	DefaultMQTTPassword = ""
-	DefaultMQTTPrefix   = "podmanview"
-	DefaultMQTTUseTLS   = false
 )
 
 // Config holds all application configuration.
@@ -72,14 +58,6 @@ type Config struct {
 	logDir        string
 	logMaxSize    int // MB
 	logMaxBackups int
-
-	// MQTT settings
-	mqttBroker   string
-	mqttClientID string
-	mqttUsername string
-	mqttPassword string
-	mqttPrefix   string
-	mqttUseTLS   bool
 }
 
 // Load loads configuration from .env file or creates it with defaults.
@@ -136,13 +114,6 @@ func (c *Config) setDefaults() {
 	c.logDir = DefaultLogDir
 	c.logMaxSize = DefaultLogMaxSize
 	c.logMaxBackups = DefaultLogMaxBackups
-	// MQTT defaults
-	c.mqttBroker = DefaultMQTTBroker
-	c.mqttClientID = DefaultMQTTClientID
-	c.mqttUsername = DefaultMQTTUsername
-	c.mqttPassword = DefaultMQTTPassword
-	c.mqttPrefix = DefaultMQTTPrefix
-	c.mqttUseTLS = DefaultMQTTUseTLS
 }
 
 // loadFromFile reads configuration from .env file.
@@ -198,26 +169,6 @@ func (c *Config) applyValues(values map[string]string) {
 		if backups, err := strconv.Atoi(v); err == nil && backups >= 0 {
 			c.logMaxBackups = backups
 		}
-	}
-
-	// MQTT settings
-	if v, ok := values[EnvMQTTBroker]; ok {
-		c.mqttBroker = v
-	}
-	if v, ok := values[EnvMQTTClientID]; ok {
-		c.mqttClientID = v
-	}
-	if v, ok := values[EnvMQTTUsername]; ok {
-		c.mqttUsername = v
-	}
-	if v, ok := values[EnvMQTTPassword]; ok {
-		c.mqttPassword = v
-	}
-	if v, ok := values[EnvMQTTPrefix]; ok {
-		c.mqttPrefix = v
-	}
-	if v, ok := values[EnvMQTTUseTLS]; ok {
-		c.mqttUseTLS = parseBool(v)
 	}
 }
 
@@ -294,13 +245,6 @@ func (c *Config) toMap() map[string]string {
 		EnvLogDir:        c.logDir,
 		EnvLogMaxSize:    strconv.Itoa(c.logMaxSize),
 		EnvLogMaxBackups: strconv.Itoa(c.logMaxBackups),
-		// MQTT settings
-		EnvMQTTBroker:   c.mqttBroker,
-		EnvMQTTClientID: c.mqttClientID,
-		EnvMQTTUsername: c.mqttUsername,
-		EnvMQTTPassword: c.mqttPassword,
-		EnvMQTTPrefix:   c.mqttPrefix,
-		EnvMQTTUseTLS:   strconv.FormatBool(c.mqttUseTLS),
 	}
 }
 
@@ -360,50 +304,6 @@ func (c *Config) LogMaxBackups() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.logMaxBackups
-}
-
-// MQTT Getters
-
-// MQTTBroker returns the MQTT broker address.
-func (c *Config) MQTTBroker() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttBroker
-}
-
-// MQTTClientID returns the MQTT client ID.
-func (c *Config) MQTTClientID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttClientID
-}
-
-// MQTTUsername returns the MQTT username.
-func (c *Config) MQTTUsername() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttUsername
-}
-
-// MQTTPassword returns the MQTT password.
-func (c *Config) MQTTPassword() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttPassword
-}
-
-// MQTTPrefix returns the MQTT topic prefix.
-func (c *Config) MQTTPrefix() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttPrefix
-}
-
-// MQTTUseTLS returns whether TLS is enabled for MQTT.
-func (c *Config) MQTTUseTLS() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.mqttUseTLS
 }
 
 // Helper functions

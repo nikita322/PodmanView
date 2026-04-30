@@ -16,7 +16,6 @@ import (
 	"podmanview/internal/config"
 	"podmanview/internal/events"
 	"podmanview/internal/logger"
-	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/led"
 	"podmanview/internal/plugins/reactor"
@@ -131,34 +130,6 @@ func main() {
 		}
 	}
 
-	// Initialize MQTT services if configured
-	var mqttClient *mqtt.Client
-	var mqttPublisher *mqtt.Publisher
-	var mqttDiscovery *mqtt.DiscoveryManager
-
-	if cfg.MQTTBroker() != "" {
-		appLogger.Printf("Initializing MQTT services...")
-
-		mqttCfg := mqtt.Config{
-			Broker:   cfg.MQTTBroker(),
-			ClientID: cfg.MQTTClientID(),
-			Username: cfg.MQTTUsername(),
-			Password: cfg.MQTTPassword(),
-			Prefix:   cfg.MQTTPrefix(),
-			UseTLS:   cfg.MQTTUseTLS(),
-		}
-
-		mqttClient, err = mqtt.New(mqttCfg, stdLogger)
-		if err != nil {
-			appLogger.Printf("Warning: Failed to create MQTT client: %v", err)
-			appLogger.Printf("MQTT functionality will be disabled")
-		} else {
-			mqttPublisher = mqtt.NewPublisher(mqttClient, stdLogger)
-			mqttDiscovery = mqtt.NewDiscoveryManager(mqttClient, stdLogger, pluginStorage, "global")
-			appLogger.Printf("MQTT services initialized successfully")
-		}
-	}
-
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -191,14 +162,11 @@ func main() {
 
 	// Initialize enabled plugins with timeout
 	pluginDeps := &plugins.PluginDependencies{
-		PodmanClient:  client,
-		Config:        cfg,
-		EventStore:    eventStore,
-		Logger:        stdLogger,
-		Storage:       pluginStorage,
-		MQTTClient:    mqttClient,
-		MQTTPublisher: mqttPublisher,
-		MQTTDiscovery: mqttDiscovery,
+		PodmanClient: client,
+		Config:       cfg,
+		EventStore:   eventStore,
+		Logger:       stdLogger,
+		Storage:      pluginStorage,
 	}
 
 	// Set dependencies in registry

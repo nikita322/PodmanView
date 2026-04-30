@@ -6,12 +6,15 @@ import (
 	"strconv"
 	"time"
 
+	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 )
 
 // PluginSettings represents plugin configuration
 type PluginSettings struct {
-	UpdateInterval int `json:"updateInterval"` // Update interval in seconds
+	UpdateInterval int         `json:"updateInterval"` // Update interval in seconds
+	MQTTEnabled    bool        `json:"mqttEnabled"`    // MQTT publishing enabled
+	MQTT           mqtt.Config `json:"mqtt"`           // MQTT configuration
 }
 
 // MQTTStatus represents MQTT status
@@ -38,10 +41,14 @@ func (p *TemperaturePlugin) handleGetTemperatures(w http.ResponseWriter, r *http
 func (p *TemperaturePlugin) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
 	interval := int(p.updatePeriod.Seconds())
+	mqttEnabled := p.mqttEnabled
+	mqttSettings := p.mqttSettings
 	p.mu.RUnlock()
 
 	settings := PluginSettings{
 		UpdateInterval: interval,
+		MQTTEnabled:    mqttEnabled,
+		MQTT:           mqttSettings,
 	}
 
 	plugins.WriteJSON(w, http.StatusOK, settings)
@@ -61,20 +68,73 @@ func (p *TemperaturePlugin) handleUpdateSettings(w http.ResponseWriter, r *http.
 		return
 	}
 
+	deps := p.Deps()
+
+	// Validate MQTT settings if enabled
+	if settings.MQTTEnabled && settings.MQTT.Broker == "" {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "MQTT broker is required when MQTT is enabled"})
+		return
+	}
+
 	// Update in-memory interval
 	p.mu.Lock()
 	p.updatePeriod = time.Duration(settings.UpdateInterval) * time.Second
+	mqttWasEnabled := p.mqttEnabled
+	p.mqttEnabled = settings.MQTTEnabled
+	p.mqttSettings = settings.MQTT
+	if p.mqttSettings.Prefix == "" {
+		p.mqttSettings.Prefix = "podmanview"
+	}
 	p.mu.Unlock()
 
-	// Save to storage
-	if p.Deps() != nil && p.Deps().Storage != nil {
-		if err := p.Deps().Storage.SetInt(p.Name(), "updateInterval", settings.UpdateInterval); err != nil {
+	// Save update interval to storage
+	if deps != nil && deps.Storage != nil {
+		if err := deps.Storage.SetInt(p.Name(), "updateInterval", settings.UpdateInterval); err != nil {
 			if p.Logger() != nil {
 				p.Logger().Printf("[%s] Failed to save update interval to storage: %v", p.Name(), err)
 			}
-			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save settings"})
+		}
+
+		// Save MQTT enabled state
+		if err := deps.Storage.SetBool(p.Name(), "mqttEnabled", settings.MQTTEnabled); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to save MQTT enabled state: %v", p.Name(), err)
+			}
+		}
+
+		// Save MQTT settings
+		if err := deps.Storage.SetJSON(p.Name(), "mqttSettings", p.mqttSettings); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to save MQTT settings: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save MQTT settings"})
 			return
 		}
+	}
+
+	// Handle MQTT connection state changes
+	if settings.MQTTEnabled {
+		// MQTT enabled: create client and connect
+		if err := p.createMQTTClient(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to create MQTT client: " + err.Error()})
+			return
+		}
+		if p.mqttClient != nil {
+			if err := p.mqttClient.Connect(); err != nil {
+				if p.Logger() != nil {
+					p.Logger().Printf("[%s] Failed to connect to MQTT broker: %v", p.Name(), err)
+				}
+				plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to connect to MQTT broker: " + err.Error()})
+				return
+			}
+			p.mqttClient.Publish("sensor/temperature/availability", []byte("online"))
+		}
+	} else if mqttWasEnabled {
+		// MQTT was enabled but now disabled: disconnect
+		p.disconnectMQTT()
 	}
 
 	// Restart background task with new interval
@@ -87,7 +147,7 @@ func (p *TemperaturePlugin) handleUpdateSettings(w http.ResponseWriter, r *http.
 	}
 
 	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Update interval changed to %d seconds and background task restarted", p.Name(), settings.UpdateInterval)
+		p.Logger().Printf("[%s] Settings updated: interval=%ds, mqttEnabled=%v", p.Name(), settings.UpdateInterval, settings.MQTTEnabled)
 	}
 
 	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Settings updated successfully"})
@@ -97,22 +157,16 @@ func (p *TemperaturePlugin) handleUpdateSettings(w http.ResponseWriter, r *http.
 func (p *TemperaturePlugin) handleGetMQTTStatus(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
 	enabled := p.mqttEnabled
+	settings := p.mqttSettings
+	client := p.mqttClient
 	p.mu.RUnlock()
 
-	deps := p.Deps()
-	mqttClient := deps.MQTTClient
-
 	status := MQTTStatus{
-		Enabled:    enabled,
-		Connected:  mqttClient != nil && mqttClient.IsConnected(),
-		Configured: mqttClient != nil,
-	}
-
-	// Add broker info if configured
-	if mqttClient != nil {
-		cfg := mqttClient.GetConfig()
-		status.BrokerURL = cfg.Broker
-		status.TopicPrefix = cfg.Prefix
+		Enabled:     enabled,
+		Connected:   client != nil && client.IsConnected(),
+		Configured:  settings.Broker != "",
+		BrokerURL:   settings.Broker,
+		TopicPrefix: settings.Prefix,
 	}
 
 	plugins.WriteJSON(w, http.StatusOK, status)
@@ -126,12 +180,13 @@ func (p *TemperaturePlugin) handleToggleMQTT(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	deps := p.Deps()
-	mqttClient := deps.MQTTClient
+	p.mu.RLock()
+	settings := p.mqttSettings
+	p.mu.RUnlock()
 
-	// Check if MQTT client is configured
-	if mqttClient == nil {
-		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "MQTT is not configured. Please set MQTT broker in .env file"})
+	// Check if MQTT is configured
+	if settings.Broker == "" {
+		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "MQTT is not configured. Please set MQTT broker in settings"})
 		return
 	}
 
@@ -141,7 +196,8 @@ func (p *TemperaturePlugin) handleToggleMQTT(w http.ResponseWriter, r *http.Requ
 	p.mu.Unlock()
 
 	// Save to storage
-	if deps.Storage != nil {
+	deps := p.Deps()
+	if deps != nil && deps.Storage != nil {
 		if err := deps.Storage.SetBool(p.Name(), "mqttEnabled", req.Enabled); err != nil {
 			if p.Logger() != nil {
 				p.Logger().Printf("[%s] Failed to save MQTT enabled state: %v", p.Name(), err)
@@ -153,32 +209,31 @@ func (p *TemperaturePlugin) handleToggleMQTT(w http.ResponseWriter, r *http.Requ
 
 	// Connect or disconnect based on the enabled state
 	if req.Enabled {
-		if !mqttClient.IsConnected() {
-			if err := mqttClient.Connect(); err != nil {
+		if err := p.createMQTTClient(); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
+			}
+			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create MQTT client"})
+			return
+		}
+
+		if p.mqttClient != nil {
+			if err := p.mqttClient.Connect(); err != nil {
 				if p.Logger() != nil {
 					p.Logger().Printf("[%s] Failed to connect to MQTT broker: %v", p.Name(), err)
 				}
 				plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to MQTT broker"})
 				return
 			}
-		}
-
-		// Publish online status
-		if mqttClient.IsConnected() {
-			mqttClient.Publish("sensor/temperature/availability", []byte("online"))
+			p.mqttClient.Publish("sensor/temperature/availability", []byte("online"))
 		}
 
 		if p.Logger() != nil {
 			p.Logger().Printf("[%s] MQTT publishing enabled", p.Name())
 		}
 	} else {
-		// Publish offline status before disconnecting
-		if mqttClient.IsConnected() {
-			mqttClient.Publish("sensor/temperature/availability", []byte("offline"))
-			time.Sleep(100 * time.Millisecond) // Wait for publish
-		}
+		p.disconnectMQTT()
 
-		mqttClient.Disconnect()
 		if p.Logger() != nil {
 			p.Logger().Printf("[%s] MQTT publishing disabled", p.Name())
 		}

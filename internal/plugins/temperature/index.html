@@ -1,5 +1,5 @@
-<!-- Temperature Monitoring Plugin Interface v2.0 -->
-<section id="page-plugin-temperature" class="content-page hidden" data-plugin-version="2.0">
+<!-- Temperature Monitoring Plugin Interface v3.0 -->
+<section id="page-plugin-temperature" class="content-page hidden" data-plugin-version="3.0">
     <div class="page-header">
         <div style="display: flex; align-items: center; gap: 12px;">
             <button id="temperature-back-btn" class="btn-back" title="Back to Plugins">
@@ -30,7 +30,6 @@
                         <option value="45">45 seconds</option>
                         <option value="60">60 seconds</option>
                     </select>
-                    <button id="save-settings-btn" class="btn btn-primary">Save</button>
                 </div>
             </div>
             <div class="info-item">
@@ -44,7 +43,7 @@
         </div>
     </div>
 
-    <!-- MQTT Section -->
+    <!-- MQTT Configuration Section -->
     <div class="info-section" style="margin-top: 20px;">
         <h2>MQTT Publishing</h2>
         <div class="info-grid">
@@ -52,21 +51,44 @@
                 <span class="info-label">MQTT Status:</span>
                 <span class="info-value" id="mqtt-status">Loading...</span>
             </div>
-            <div class="info-item" id="mqtt-broker-info" style="display: none;">
-                <span class="info-label">Broker:</span>
-                <span class="info-value" id="mqtt-broker">-</span>
-            </div>
-            <div class="info-item" id="mqtt-topic-info" style="display: none;">
-                <span class="info-label">Topic:</span>
-                <span class="info-value" id="mqtt-topic">-</span>
-            </div>
             <div class="info-item">
                 <span class="info-label">Enable MQTT:</span>
                 <label class="toggle-label">
-                    <input type="checkbox" id="mqtt-toggle" disabled>
+                    <input type="checkbox" id="mqtt-toggle">
                     <span class="toggle-slider"></span>
                     <span class="toggle-text" id="mqtt-toggle-status">Disabled</span>
                 </label>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Broker URL:</span>
+                <input type="text" id="mqtt-broker" placeholder="tcp://localhost:1883" style="width: 100%; max-width: 400px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Client ID:</span>
+                <input type="text" id="mqtt-client-id" placeholder="podmanview-temperature" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Topic Prefix:</span>
+                <input type="text" id="mqtt-prefix" placeholder="podmanview" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Username:</span>
+                <input type="text" id="mqtt-username" placeholder="(optional)" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Password:</span>
+                <input type="password" id="mqtt-password" placeholder="(optional)" style="width: 100%; max-width: 250px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Use TLS:</span>
+                <label class="toggle-label">
+                    <input type="checkbox" id="mqtt-use-tls">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text" id="mqtt-tls-status">Disabled</span>
+                </label>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
             </div>
         </div>
     </div>
@@ -106,18 +128,16 @@
     const TemperaturePlugin = {
         initialized: false,
         updateIntervalId: null,
-        mqttConfigured: false,
 
         init: function() {
             if (this.initialized) {
                 console.log('[TemperaturePlugin] Already initialized, skipping');
                 return;
             }
-            console.log('[TemperaturePlugin v2.0] Initializing...');
+            console.log('[TemperaturePlugin v3.0] Initializing...');
             this.initialized = true;
             this.bindEvents();
             this.loadSettings();
-            this.loadMQTTStatus();
             this.loadTemperatureData();
             this.startAutoUpdate();
         },
@@ -136,6 +156,7 @@
             const refreshBtn = document.getElementById('temperature-refresh-btn');
             const saveBtn = document.getElementById('save-settings-btn');
             const mqttToggle = document.getElementById('mqtt-toggle');
+            const tlsToggle = document.getElementById('mqtt-use-tls');
 
             if (backBtn) {
                 backBtn.addEventListener('click', () => this.goBack());
@@ -148,6 +169,9 @@
             }
             if (mqttToggle) {
                 mqttToggle.addEventListener('change', (e) => this.toggleMQTT(e.target.checked));
+            }
+            if (tlsToggle) {
+                tlsToggle.addEventListener('change', (e) => this.updateTLSText(e.target.checked));
             }
         },
 
@@ -249,6 +273,34 @@
                     document.getElementById('update-interval').value = settings.updateInterval;
                     document.getElementById('current-interval').textContent = settings.updateInterval + 's';
                 }
+
+                // Update MQTT fields
+                const mqtt = settings.mqtt || {};
+                document.getElementById('mqtt-broker').value = mqtt.broker || '';
+                document.getElementById('mqtt-client-id').value = mqtt.clientId || '';
+                document.getElementById('mqtt-prefix').value = mqtt.prefix || '';
+                document.getElementById('mqtt-username').value = mqtt.username || '';
+                document.getElementById('mqtt-password').value = mqtt.password || '';
+                document.getElementById('mqtt-use-tls').checked = mqtt.useTls || false;
+                this.updateTLSText(mqtt.useTls || false);
+
+                // Update MQTT toggle and status
+                const mqttToggle = document.getElementById('mqtt-toggle');
+                const mqttStatus = document.getElementById('mqtt-status');
+                const mqttToggleStatus = document.getElementById('mqtt-toggle-status');
+
+                mqttToggle.checked = settings.mqttEnabled || false;
+
+                if (settings.mqttEnabled) {
+                    mqttStatus.textContent = 'Enabled';
+                    mqttStatus.className = 'info-value';
+                    mqttToggleStatus.textContent = 'Enabled';
+                } else {
+                    mqttStatus.textContent = 'Disabled';
+                    mqttStatus.className = 'info-value';
+                    mqttToggleStatus.textContent = 'Disabled';
+                }
+
             } catch (error) {
                 console.error('[TemperaturePlugin] Error loading settings:', error);
             }
@@ -261,6 +313,19 @@
             saveBtn.disabled = true;
             saveBtn.textContent = 'Saving...';
 
+            const settings = {
+                updateInterval: interval,
+                mqttEnabled: document.getElementById('mqtt-toggle').checked,
+                mqtt: {
+                    broker: document.getElementById('mqtt-broker').value.trim(),
+                    clientId: document.getElementById('mqtt-client-id').value.trim(),
+                    prefix: document.getElementById('mqtt-prefix').value.trim(),
+                    username: document.getElementById('mqtt-username').value.trim(),
+                    password: document.getElementById('mqtt-password').value,
+                    useTls: document.getElementById('mqtt-use-tls').checked
+                }
+            };
+
             try {
                 const response = await fetch('/api/plugins/temperature/settings', {
                     method: 'POST',
@@ -268,10 +333,13 @@
                         'Content-Type': 'application/json',
                         'Authorization': 'Bearer ' + localStorage.getItem('token')
                     },
-                    body: JSON.stringify({ updateInterval: interval })
+                    body: JSON.stringify(settings)
                 });
 
-                if (!response.ok) throw new Error('Failed to save settings');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save settings');
+                }
 
                 document.getElementById('current-interval').textContent = interval + 's';
                 this.showSuccess('Settings saved successfully');
@@ -279,12 +347,15 @@
                 // Restart auto-update with new interval
                 this.startAutoUpdate();
 
+                // Reload settings to update MQTT status
+                await this.loadSettings();
+
             } catch (error) {
                 console.error('[TemperaturePlugin] Error saving settings:', error);
-                this.showError('Failed to save settings');
+                this.showError(error.message || 'Failed to save settings');
             } finally {
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Save';
+                saveBtn.textContent = 'Save Settings';
             }
         },
 
@@ -313,66 +384,10 @@
             }
         },
 
-        loadMQTTStatus: async function() {
-            try {
-                const response = await fetch('/api/plugins/temperature/mqtt', {
-                    headers: {
-                        'Authorization': 'Bearer ' + localStorage.getItem('token')
-                    }
-                });
-
-                if (!response.ok) throw new Error('Failed to load MQTT status');
-
-                const status = await response.json();
-                this.mqttConfigured = status.configured;
-
-                // Update UI
-                const mqttToggle = document.getElementById('mqtt-toggle');
-                const mqttStatus = document.getElementById('mqtt-status');
-                const mqttToggleStatus = document.getElementById('mqtt-toggle-status');
-                const mqttBrokerInfo = document.getElementById('mqtt-broker-info');
-                const mqttTopicInfo = document.getElementById('mqtt-topic-info');
-
-                if (status.configured) {
-                    mqttToggle.disabled = false;
-                    mqttToggle.checked = status.enabled;
-
-                    // Show broker and topic info
-                    mqttBrokerInfo.style.display = '';
-                    mqttTopicInfo.style.display = '';
-                    document.getElementById('mqtt-broker').textContent = status.brokerUrl || '-';
-                    document.getElementById('mqtt-topic').textContent = (status.topicPrefix || 'podmanview') + '/temperature';
-
-                    if (status.enabled && status.connected) {
-                        mqttStatus.textContent = 'Connected & Publishing';
-                        mqttStatus.className = 'info-value';
-                        mqttToggleStatus.textContent = 'Enabled';
-                    } else if (status.enabled && !status.connected) {
-                        mqttStatus.textContent = 'Enabled but Disconnected';
-                        mqttStatus.className = 'info-value';
-                        mqttToggleStatus.textContent = 'Enabled (Disconnected)';
-                    } else {
-                        mqttStatus.textContent = 'Configured but Disabled';
-                        mqttStatus.className = 'info-value';
-                        mqttToggleStatus.textContent = 'Disabled';
-                    }
-                } else {
-                    mqttToggle.disabled = true;
-                    mqttToggle.checked = false;
-                    mqttStatus.textContent = 'Not Configured';
-                    mqttStatus.className = 'info-value';
-                    mqttToggleStatus.textContent = 'Not Available';
-                    mqttBrokerInfo.style.display = 'none';
-                    mqttTopicInfo.style.display = 'none';
-                }
-
-            } catch (error) {
-                console.error('[TemperaturePlugin] Error loading MQTT status:', error);
-                const mqttStatus = document.getElementById('mqtt-status');
-                if (mqttStatus) {
-                    mqttStatus.textContent = 'Error';
-                    mqttStatus.className = 'info-value';
-                }
+        updateTLSText: function(enabled) {
+            const tlsStatus = document.getElementById('mqtt-tls-status');
+            if (tlsStatus) {
+                tlsStatus.textContent = enabled ? 'Enabled' : 'Disabled';
             }
         },
 
@@ -400,8 +415,8 @@
 
                 this.showSuccess(enabled ? 'MQTT publishing enabled' : 'MQTT publishing disabled');
 
-                // Reload MQTT status to update UI
-                await this.loadMQTTStatus();
+                // Reload settings to update UI
+                await this.loadSettings();
 
             } catch (error) {
                 console.error('[TemperaturePlugin] Error toggling MQTT:', error);
@@ -409,6 +424,7 @@
 
                 // Revert toggle state
                 mqttToggle.checked = originalState;
+            } finally {
                 mqttToggle.disabled = false;
             }
         }
