@@ -9,23 +9,23 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-arm64:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+          cache: true
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Minify assets
         run: |
@@ -38,46 +38,128 @@ jobs:
       - name: Version assets and templates
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          # Add version query string to CSS/JS
           sed -i "s|/static/css/style\.css|/static/css/style.css?v=$VERSION|g" web/templates/index.html
           sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
-          # Add version to HTML template
           sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Cache apt packages
+        uses: actions/cache@v4
         with:
-          platforms: riscv64,arm64
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: ${{ runner.os }}-apt-arm64-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-arm64-
 
-      - name: Build for ARM64
+      - name: Install cross-compiler and libpam
         run: |
-          docker run --rm --platform linux/arm64 \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            -e VERSION="${{ steps.version.outputs.VERSION }}" \
-            debian:trixie-slim \
-            bash -c '
-              apt-get update && \
-              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
-              go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
-            '
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libpam0g-dev:arm64
+
+      - name: Build
+        env:
+          CC: aarch64-linux-gnu-gcc
+          CXX: aarch64-linux-gnu-g++
+          CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: arm64
+          CGO_CFLAGS: "-I/usr/include"
+          CGO_LDFLAGS: "-L/usr/lib/aarch64-linux-gnu"
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
           tar -czvf podmanview-linux-arm64.tar.gz podmanview web/
 
-      - name: Build for RISC-V 64-bit
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-artifact
+          path: podmanview-linux-arm64.tar.gz
+          retention-days: 1
+
+  build-riscv64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Minify assets
         run: |
-          docker run --rm --platform linux/riscv64 \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            -e VERSION="${{ steps.version.outputs.VERSION }}" \
-            docker.io/riscv64/debian:trixie-slim \
-            bash -c '
-              apt-get update && \
-              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
-              go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
-            '
+          go install github.com/tdewolff/minify/v2/cmd/minify@latest
+          minify -o web/static/js/app.min.js web/static/js/app.js
+          minify -o web/static/css/style.min.css web/static/css/style.css
+          mv web/static/js/app.min.js web/static/js/app.js
+          mv web/static/css/style.min.css web/static/css/style.css
+
+      - name: Version assets and templates
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          sed -i "s|/static/css/style\.css|/static/css/style.css?v=$VERSION|g" web/templates/index.html
+          sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
+          sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: ${{ runner.os }}-apt-riscv64-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-riscv64-
+
+      - name: Install cross-compiler and libpam
+        run: |
+          sudo dpkg --add-architecture riscv64
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-riscv64-linux-gnu libpam0g-dev:riscv64
+
+      - name: Build
+        env:
+          CC: riscv64-linux-gnu-gcc
+          CXX: riscv64-linux-gnu-g++
+          CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: riscv64
+          CGO_CFLAGS: "-I/usr/include"
+          CGO_LDFLAGS: "-L/usr/lib/riscv64-linux-gnu"
+          PKG_CONFIG_PATH: /usr/lib/riscv64-linux-gnu/pkgconfig
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
           tar -czvf podmanview-linux-riscv64.tar.gz podmanview web/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: riscv64-artifact
+          path: podmanview-linux-riscv64.tar.gz
+          retention-days: 1
+
+  release:
+    needs: [build-arm64, build-riscv64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Install minisign
         run: |
@@ -90,16 +172,16 @@ jobs:
           MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
         run: |
           echo "$MINISIGN_KEY" > /tmp/minisign.key
-          echo "" | minisign -Sm podmanview-linux-arm64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
-          echo "" | minisign -Sm podmanview-linux-riscv64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
+          echo "" | minisign -Sm artifacts/podmanview-linux-arm64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ github.ref_name }}"
+          echo "" | minisign -Sm artifacts/podmanview-linux-riscv64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ github.ref_name }}"
           rm /tmp/minisign.key
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            podmanview-linux-arm64.tar.gz
-            podmanview-linux-arm64.tar.gz.minisig
-            podmanview-linux-riscv64.tar.gz
-            podmanview-linux-riscv64.tar.gz.minisig
+            artifacts/podmanview-linux-arm64.tar.gz
+            artifacts/podmanview-linux-arm64.tar.gz.minisig
+            artifacts/podmanview-linux-riscv64.tar.gz
+            artifacts/podmanview-linux-riscv64.tar.gz.minisig
           generate_release_notes: true
