@@ -207,6 +207,30 @@ func (l *Logger) Errorln(v ...interface{}) {
 	l.errorLogger.Println(v...)
 }
 
+// Fatal пишет сообщение об ошибке в error.log и завершает программу
+func (l *Logger) Fatal(v ...interface{}) {
+	l.mu.Lock()
+	l.errorLogger.Print(v...)
+	l.mu.Unlock()
+	os.Exit(1)
+}
+
+// Fatalf пишет форматированное сообщение об ошибке в error.log и завершает программу
+func (l *Logger) Fatalf(format string, v ...interface{}) {
+	l.mu.Lock()
+	l.errorLogger.Printf(format, v...)
+	l.mu.Unlock()
+	os.Exit(1)
+}
+
+// Fatalln пишет сообщение об ошибке с новой строкой в error.log и завершает программу
+func (l *Logger) Fatalln(v ...interface{}) {
+	l.mu.Lock()
+	l.errorLogger.Println(v...)
+	l.mu.Unlock()
+	os.Exit(1)
+}
+
 // Writer возвращает io.Writer для записи в app.log
 func (l *Logger) Writer() io.Writer {
 	return l.infoLogger.Writer()
