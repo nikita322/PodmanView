@@ -167,6 +167,39 @@ select option {
     color: var(--text);
 }
 
+/* Form inputs inside info items (plugin settings, etc.) */
+.info-item input[type="text"],
+.info-item input[type="password"],
+.info-item input[type="number"],
+.info-item textarea,
+.form-input {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+}
+
+.info-item input[type="text"]:focus,
+.info-item input[type="password"]:focus,
+.info-item input[type="number"]:focus,
+.info-item textarea:focus,
+.form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.info-item input[type="text"]::placeholder,
+.info-item input[type="password"]::placeholder,
+.info-item textarea::placeholder,
+.form-input::placeholder {
+    color: var(--text-muted);
+}
+
 .checkbox-group {
     margin-bottom: 16px;
 }
