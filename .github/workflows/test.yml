@@ -26,6 +26,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpam0g-dev gcc
+
       - name: Download dependencies
         run: go mod download
 
