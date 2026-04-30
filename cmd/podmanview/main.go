@@ -222,6 +222,7 @@ func main() {
 			appLogger.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
 		}
 		cancel()
+		pluginRegistry.SetRunning(p.Name(), true)
 	}
 
 	// Start background tasks for plugins that support them

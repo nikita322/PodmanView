@@ -127,6 +127,20 @@ func (p *LEDPlugin) Start(ctx context.Context) error {
 
 // Stop stops the plugin
 func (p *LEDPlugin) Stop(ctx context.Context) error {
+	// Turn off all LEDs when the plugin is stopped/disabled
+	if len(p.leds) > 0 {
+		if err := p.setAllLEDs(false); err != nil {
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Warning: Failed to turn off LEDs on stop: %v", p.Name(), err)
+			}
+		} else {
+			p.updateState()
+			if p.Logger() != nil {
+				p.Logger().Printf("[%s] Turned off %d LEDs on stop", p.Name(), len(p.leds))
+			}
+		}
+	}
+
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Plugin stopped", p.Name())
 	}

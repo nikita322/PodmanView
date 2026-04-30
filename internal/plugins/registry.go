@@ -10,7 +10,8 @@ import (
 type Registry struct {
 	mu      sync.RWMutex
 	plugins map[string]Plugin
-	order   []string // registration order
+	order   []string        // registration order
+	running map[string]bool // runtime state: which plugins are currently started
 	deps    *PluginDependencies
 }
 
@@ -19,6 +20,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		plugins: make(map[string]Plugin),
 		order:   make([]string, 0),
+		running: make(map[string]bool),
 	}
 }
 
@@ -102,6 +104,14 @@ func (r *Registry) Count() int {
 	return len(r.plugins)
 }
 
+// SetRunning marks a plugin as running (or not running) in the registry.
+// This should be called after manually starting/stopping a plugin outside of EnablePlugin/DisablePlugin.
+func (r *Registry) SetRunning(name string, running bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.running[name] = running
+}
+
 // EnablePlugin dynamically enables and starts a plugin
 func (r *Registry) EnablePlugin(ctx context.Context, name string) error {
 	r.mu.Lock()
@@ -112,7 +122,7 @@ func (r *Registry) EnablePlugin(ctx context.Context, name string) error {
 		return fmt.Errorf("plugin %s not found", name)
 	}
 
-	if plugin.IsEnabled() {
+	if r.running[name] {
 		return nil // Already enabled
 	}
 
@@ -124,6 +134,17 @@ func (r *Registry) EnablePlugin(ctx context.Context, name string) error {
 
 	if err := plugin.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start plugin %s: %w", name, err)
+	}
+
+	r.running[name] = true
+
+	// Start background tasks if the plugin supports them
+	if runner, ok := plugin.(BackgroundTaskRunner); ok {
+		bgCtx := context.Background()
+		if err := runner.StartBackgroundTasks(bgCtx); err != nil {
+			delete(r.running, name)
+			return fmt.Errorf("failed to start background tasks for plugin %s: %w", name, err)
+		}
 	}
 
 	return nil
@@ -139,13 +160,15 @@ func (r *Registry) DisablePlugin(ctx context.Context, name string) error {
 		return fmt.Errorf("plugin %s not found", name)
 	}
 
-	if !plugin.IsEnabled() {
+	if !r.running[name] {
 		return nil // Already disabled
 	}
 
 	if err := plugin.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop plugin %s: %w", name, err)
 	}
+
+	delete(r.running, name)
 
 	return nil
 }
