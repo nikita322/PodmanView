@@ -941,8 +941,12 @@ const App = {
             this.hostTerminalReconnectTimer = null;
         }
 
-        // Close existing socket if any
+        // Close existing socket if any (clear handlers to prevent stale onclose from firing)
         if (this.hostTerminalSocket) {
+            this.hostTerminalSocket.onopen = null;
+            this.hostTerminalSocket.onmessage = null;
+            this.hostTerminalSocket.onclose = null;
+            this.hostTerminalSocket.onerror = null;
             this.hostTerminalSocket.close();
             this.hostTerminalSocket = null;
         }
@@ -974,9 +978,10 @@ const App = {
         const wsUrl = `${protocol}//${window.location.host}/api/terminal?ws_token=${encodeURIComponent(wsToken)}`;
 
         try {
-            this.hostTerminalSocket = new WebSocket(wsUrl);
+            const socket = new WebSocket(wsUrl);
+            this.hostTerminalSocket = socket;
 
-            this.hostTerminalSocket.onopen = () => {
+            socket.onopen = () => {
                 // Reset reconnection state on successful connection
                 this.hostTerminalReconnecting = false;
                 this.hostTerminalReconnectAttempts = 0;
@@ -996,7 +1001,7 @@ const App = {
                 }
             };
 
-            this.hostTerminalSocket.onmessage = (event) => {
+            socket.onmessage = (event) => {
                 // Try to parse as JSON (for history message)
                 try {
                     const msg = JSON.parse(event.data);
@@ -1013,7 +1018,9 @@ const App = {
                 if (this.hostTerminal) this.hostTerminal.write(event.data);
             };
 
-            this.hostTerminalSocket.onclose = (event) => {
+            socket.onclose = (event) => {
+                // Ignore close events from stale sockets
+                if (this.hostTerminalSocket !== socket) return;
                 // Only attempt reconnect if we're still on terminal page and not intentionally closing
                 if (this.currentPage === 'terminal' && !event.wasClean && event.code !== 1000) {
                     this.scheduleHostTerminalReconnect();
@@ -1022,7 +1029,7 @@ const App = {
                 }
             };
 
-            this.hostTerminalSocket.onerror = (error) => {
+            socket.onerror = (error) => {
                 console.error('WebSocket error:', error);
                 // onclose will be called after onerror, so reconnection will be handled there
             };
@@ -2011,8 +2018,12 @@ const App = {
             this.containerTerminalReconnectTimer = null;
         }
 
-        // Close existing socket if any
+        // Close existing socket if any (clear handlers to prevent stale onclose from firing)
         if (this.terminalSocket) {
+            this.terminalSocket.onopen = null;
+            this.terminalSocket.onmessage = null;
+            this.terminalSocket.onclose = null;
+            this.terminalSocket.onerror = null;
             this.terminalSocket.close();
             this.terminalSocket = null;
         }
@@ -2044,9 +2055,10 @@ const App = {
         const wsUrl = `${protocol}//${window.location.host}/api/containers/${this.currentContainerId}/terminal?ws_token=${encodeURIComponent(wsToken)}`;
 
         try {
-            this.terminalSocket = new WebSocket(wsUrl);
+            const socket = new WebSocket(wsUrl);
+            this.terminalSocket = socket;
 
-            this.terminalSocket.onopen = () => {
+            socket.onopen = () => {
                 // Reset reconnection state on successful connection
                 this.containerTerminalReconnecting = false;
                 this.containerTerminalReconnectAttempts = 0;
@@ -2054,12 +2066,14 @@ const App = {
                 if (this.terminal) this.terminal.writeln('Connected!\r\n');
             };
 
-            this.terminalSocket.onmessage = (event) => {
+            socket.onmessage = (event) => {
                 // Write to terminal
                 if (this.terminal) this.terminal.write(event.data);
             };
 
-            this.terminalSocket.onclose = (event) => {
+            socket.onclose = (event) => {
+                // Ignore close events from stale sockets
+                if (this.terminalSocket !== socket) return;
                 // Only attempt reconnect if modal is still open and not intentionally closing
                 const modal = document.getElementById('modal-terminal');
                 const isModalOpen = modal && !modal.classList.contains('hidden');
@@ -2071,7 +2085,7 @@ const App = {
                 }
             };
 
-            this.terminalSocket.onerror = (error) => {
+            socket.onerror = (error) => {
                 console.error('Container WebSocket error:', error);
                 // onclose will be called after onerror, so reconnection will be handled there
             };

@@ -27,8 +27,9 @@ const (
 	pingInterval = 30 * time.Second
 	// Pong wait timeout (if no pong received within this time, connection is dead)
 	pongWait = 60 * time.Second
-	// Write wait timeout
-	writeWait = 10 * time.Second
+	// Write wait timeout (must be >= pingInterval to avoid write deadline
+	// expiring between pings while terminal output is being sent)
+	writeWait = 60 * time.Second
 )
 
 // TerminalHandler handles terminal WebSocket connections
