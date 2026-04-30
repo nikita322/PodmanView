@@ -1,3 +1,8 @@
+# Hidden files and directories
+.*
+!.github/
+!.gitignore
+
 # Binaries
 podmanview
 *.exe
@@ -13,7 +18,6 @@ release.bat
 podmanview.db
 
 # IDE
-/.claude/
 /.idea/
 .vscode/
 *.swp
