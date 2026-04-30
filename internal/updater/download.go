@@ -9,16 +9,50 @@ import (
 	"time"
 )
 
+const (
+	maxDownloadRetries = 3
+	retryBackoffBase   = 1 * time.Second
+)
+
 // ProgressFunc is called during download with bytes downloaded and total size
 type ProgressFunc func(downloaded, total int64)
 
 // downloadFile downloads a file from URL to local path
 func (u *Updater) downloadFile(ctx context.Context, client *http.Client, url, destPath string) error {
-	return u.downloadFileWithProgress(ctx, client, url, destPath, nil)
+	return u.downloadWithRetry(ctx, client, url, destPath, nil)
 }
 
 // downloadFileWithProgress downloads a file with progress callback
 func (u *Updater) downloadFileWithProgress(ctx context.Context, client *http.Client, url, destPath string, progress ProgressFunc) error {
+	return u.downloadWithRetry(ctx, client, url, destPath, progress)
+}
+
+// downloadWithRetry attempts to download a file up to maxDownloadRetries times
+func (u *Updater) downloadWithRetry(ctx context.Context, client *http.Client, url, destPath string, progress ProgressFunc) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxDownloadRetries; attempt++ {
+		if attempt > 1 {
+			backoff := retryBackoffBase * time.Duration(1<<(attempt-2)) // 1s, 2s, 4s
+			u.logf("Download attempt %d/%d for %s waiting %v before retry...", attempt, maxDownloadRetries, url, backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return fmt.Errorf("download cancelled during retry: %w", ctx.Err())
+			}
+		}
+		u.logf("Download attempt %d/%d for %s", attempt, maxDownloadRetries, url)
+		if err := u.doDownload(ctx, client, url, destPath, progress); err != nil {
+			lastErr = err
+			u.logf("Download attempt %d/%d failed: %v", attempt, maxDownloadRetries, err)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("download failed after %d attempts: %w", maxDownloadRetries, lastErr)
+}
+
+// doDownload performs a single download attempt
+func (u *Updater) doDownload(ctx context.Context, client *http.Client, url, destPath string, progress ProgressFunc) error {
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
