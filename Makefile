@@ -28,6 +28,16 @@ clean:
 	rm -f $(BINARY)-*
 	rm -f *.tar.gz
 
+# Build for ARM64 Linux
+build-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BINARY)-linux-arm64 ./cmd/podmanview
+
+# Package for ARM64
+package-arm64: build-arm64
+	tar -czvf $(BINARY)-$(VERSION)-linux-arm64.tar.gz \
+		--transform 's,$(BINARY)-linux-arm64,$(BINARY),' \
+		$(BINARY)-linux-arm64 web/
+
 # Build for RISC-V 64-bit Linux
 build-riscv64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "$(LDFLAGS)" -o $(BINARY)-linux-riscv64 ./cmd/podmanview
@@ -62,6 +72,8 @@ help:
 	@echo "  dev           - Build and run with -no-auth"
 	@echo "  deps          - Download dependencies"
 	@echo "  clean         - Remove build artifacts"
+	@echo "  build-arm64   - Build for ARM64 Linux"
+	@echo "  package-arm64 - Build and package for ARM64"
 	@echo "  build-riscv64 - Build for RISC-V 64-bit Linux"
 	@echo "  package-riscv64 - Build and package for RISC-V"
 	@echo "  test          - Run tests"
