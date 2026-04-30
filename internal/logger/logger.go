@@ -18,13 +18,89 @@ const (
 	LevelFatal
 )
 
-// Logger - кастомный логгер с поддержкой записи в файлы
+const (
+	defaultMaxSize    = 10 * 1024 * 1024 // 10 MB
+	defaultMaxBackups = 3
+)
+
+// rotatingWriter пишет в файл и автоматически ротирует при превышении maxSize
+type rotatingWriter struct {
+	filename   string
+	maxSize    int64
+	maxBackups int
+	size       int64
+	file       *os.File
+	mu         sync.Mutex
+}
+
+func newRotatingWriter(filename string, maxSize int64, maxBackups int) (*rotatingWriter, error) {
+	w := &rotatingWriter{
+		filename:   filename,
+		maxSize:    maxSize,
+		maxBackups: maxBackups,
+	}
+	info, err := os.Stat(filename)
+	if err == nil {
+		w.size = info.Size()
+	}
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, err
+	}
+	w.file = f
+	return w, nil
+}
+
+func (w *rotatingWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.size+int64(len(p)) > w.maxSize {
+		if err := w.rotate(); err != nil {
+			return 0, err
+		}
+	}
+
+	n, err = w.file.Write(p)
+	w.size += int64(n)
+	return n, err
+}
+
+func (w *rotatingWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.file.Close()
+}
+
+func (w *rotatingWriter) rotate() error {
+	w.file.Close()
+
+	// Shift backups: .2 -> .3, .1 -> .2
+	for i := w.maxBackups - 1; i > 0; i-- {
+		oldPath := fmt.Sprintf("%s.%d", w.filename, i)
+		newPath := fmt.Sprintf("%s.%d", w.filename, i+1)
+		os.Remove(newPath) // Remove oldest if exists
+		os.Rename(oldPath, newPath)
+	}
+	os.Remove(w.filename + ".1")
+	os.Rename(w.filename, w.filename+".1")
+
+	f, err := os.OpenFile(w.filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	w.file = f
+	w.size = 0
+	return nil
+}
+
+// Logger - кастомный логгер с поддержкой записи в файлы и ротацией
 type Logger struct {
 	infoLogger  *log.Logger
 	errorLogger *log.Logger
 	logDir      string
-	appFile     *os.File
-	errorFile   *os.File
+	appWriter   *rotatingWriter
+	errorWriter *rotatingWriter
 	mu          sync.Mutex
 }
 
@@ -35,38 +111,39 @@ func New(logDir string) (*Logger, error) {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	// Открываем файлы для логов
-	appFile, err := os.OpenFile(
+	// Открываем файлы для логов с ротацией
+	appWriter, err := newRotatingWriter(
 		filepath.Join(logDir, "app.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		0644,
+		defaultMaxSize,
+		defaultMaxBackups,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open app.log: %w", err)
 	}
 
-	errorFile, err := os.OpenFile(
+	errorWriter, err := newRotatingWriter(
 		filepath.Join(logDir, "error.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		0644,
+		defaultMaxSize,
+		defaultMaxBackups,
 	)
 	if err != nil {
-		appFile.Close()
+		appWriter.Close()
 		return nil, fmt.Errorf("failed to open error.log: %w", err)
 	}
 
 	// Создаем MultiWriter для дублирования вывода в консоль и файл
-	appWriter := io.MultiWriter(os.Stdout, appFile)
-	errorWriter := io.MultiWriter(os.Stderr, errorFile)
+	appOut := io.MultiWriter(os.Stdout, appWriter)
+	errorOut := io.MultiWriter(os.Stderr, errorWriter)
 
 	logger := &Logger{
-		infoLogger:  log.New(appWriter, "", log.LstdFlags),
-		errorLogger: log.New(errorWriter, "ERROR: ", log.LstdFlags|log.Lshortfile),
+		infoLogger:  log.New(appOut, "", log.LstdFlags),
+		errorLogger: log.New(errorOut, "ERROR: ", log.LstdFlags|log.Lshortfile),
 		logDir:      logDir,
-		appFile:     appFile,
-		errorFile:   errorFile,
+		appWriter:   appWriter,
+		errorWriter: errorWriter,
 	}
 
+	logger.Printf("Logger initialized (max size: %d MB, max backups: %d)", defaultMaxSize/(1024*1024), defaultMaxBackups)
 	return logger, nil
 }
 
@@ -76,10 +153,10 @@ func (l *Logger) Close() error {
 	defer l.mu.Unlock()
 
 	var errs []error
-	if err := l.appFile.Close(); err != nil {
+	if err := l.appWriter.Close(); err != nil {
 		errs = append(errs, err)
 	}
-	if err := l.errorFile.Close(); err != nil {
+	if err := l.errorWriter.Close(); err != nil {
 		errs = append(errs, err)
 	}
 

@@ -239,7 +239,7 @@ func main() {
 	// Create API server with ALL plugins (not just enabled)
 	// This allows the API to show all available plugins with their enabled status
 	allPlugins := pluginRegistry.All()
-	server := api.NewServerWithPlugins(client, cfg, Version, staticVersion, allPlugins, pluginRegistry, pluginStorage)
+	server := api.NewServerWithPlugins(client, cfg, Version, staticVersion, allPlugins, pluginRegistry, pluginStorage, appLogger)
 
 	// Start server
 	addr := cfg.Addr()

@@ -6,18 +6,19 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 // ProgressFunc is called during download with bytes downloaded and total size
 type ProgressFunc func(downloaded, total int64)
 
 // downloadFile downloads a file from URL to local path
-func downloadFile(ctx context.Context, client *http.Client, url, destPath string) error {
-	return downloadFileWithProgress(ctx, client, url, destPath, nil)
+func (u *Updater) downloadFile(ctx context.Context, client *http.Client, url, destPath string) error {
+	return u.downloadFileWithProgress(ctx, client, url, destPath, nil)
 }
 
 // downloadFileWithProgress downloads a file with progress callback
-func downloadFileWithProgress(ctx context.Context, client *http.Client, url, destPath string, progress ProgressFunc) error {
+func (u *Updater) downloadFileWithProgress(ctx context.Context, client *http.Client, url, destPath string, progress ProgressFunc) error {
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -27,12 +28,18 @@ func downloadFileWithProgress(ctx context.Context, client *http.Client, url, des
 	// Set User-Agent
 	req.Header.Set("User-Agent", "PodmanView-Updater/1.0")
 
+	u.logf("Starting download from %s (timeout: %v)", url, client.Timeout)
+	startTime := time.Now()
+
 	// Execute request
 	resp, err := client.Do(req)
 	if err != nil {
+		u.logf("Download request failed after %v: %v", time.Since(startTime), err)
 		return fmt.Errorf("download: %w", err)
 	}
 	defer resp.Body.Close()
+
+	u.logf("Download response received: HTTP %d, Content-Length: %s", resp.StatusCode, formatBytes(resp.ContentLength))
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
@@ -71,12 +78,21 @@ func downloadFileWithProgress(ctx context.Context, client *http.Client, url, des
 	}
 
 	if err != nil {
+		u.logf("Download write failed after %v: %v", time.Since(startTime), err)
 		return fmt.Errorf("write file: %w", err)
 	}
 
 	// Verify size if known
 	if total > 0 && written != total {
 		return fmt.Errorf("incomplete download: got %d bytes, expected %d", written, total)
+	}
+
+	elapsed := time.Since(startTime)
+	if total > 0 {
+		speed := float64(total) / elapsed.Seconds() / 1024 // KB/s
+		u.logf("Download completed: %s in %v (%.1f KB/s)", formatBytes(written), elapsed, speed)
+	} else {
+		u.logf("Download completed: %s in %v", formatBytes(written), elapsed)
 	}
 
 	// Close before rename

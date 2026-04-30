@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"podmanview/internal/auth"
 	"podmanview/internal/config"
 	"podmanview/internal/events"
+	"podmanview/internal/logger"
 	"podmanview/internal/plugins"
 	"podmanview/internal/podman"
 	"podmanview/internal/storage"
@@ -37,15 +37,16 @@ type Server struct {
 	storage        storage.Storage
 	version        string
 	staticVersion  string
+	logger         *logger.Logger
 }
 
 // NewServer creates new API server without plugins
-func NewServer(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string) *Server {
-	return NewServerWithPlugins(podmanClient, cfg, version, staticVersion, nil, nil, nil)
+func NewServer(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string, appLogger *logger.Logger) *Server {
+	return NewServerWithPlugins(podmanClient, cfg, version, staticVersion, nil, nil, nil, appLogger)
 }
 
 // NewServerWithPlugins creates new API server with plugins
-func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string, pluginList []plugins.Plugin, registry *plugins.Registry, pluginStorage storage.Storage) *Server {
+func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, version, staticVersion string, pluginList []plugins.Plugin, registry *plugins.Registry, pluginStorage storage.Storage, appLogger *logger.Logger) *Server {
 	pamAuth := auth.NewPAMAuth()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret(), cfg.JWTExpiration())
 	authMw := auth.NewMiddleware(jwtManager)
@@ -55,14 +56,20 @@ func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, versi
 	// Get working directory for updater
 	workDir, err := os.Getwd()
 	if err != nil {
-		log.Printf("Warning: failed to get working directory: %v", err)
+		if appLogger != nil {
+			appLogger.Printf("Warning: failed to get working directory: %v", err)
+		}
 		workDir = "."
 	}
 
 	// Create updater
 	upd, err := updater.New(version, workDir)
 	if err != nil {
-		log.Printf("Warning: failed to create updater: %v", err)
+		if appLogger != nil {
+			appLogger.Printf("Warning: failed to create updater: %v", err)
+		}
+	} else if appLogger != nil {
+		upd.SetLogger(appLogger)
 	}
 
 	// Create history handler (store history in database)
@@ -84,6 +91,7 @@ func NewServerWithPlugins(podmanClient *podman.Client, cfg *config.Config, versi
 		storage:        pluginStorage,
 		version:        version,
 		staticVersion:  staticVersion,
+		logger:         appLogger,
 	}
 
 	s.setupRoutes()
@@ -106,7 +114,7 @@ func (s *Server) setupRoutes() {
 	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore, s.pluginRegistry)
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
-	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
+	updateHandler := NewUpdateHandler(s.updater, s.eventStore, s.logger)
 	fileManagerHandler := NewFileManagerHandler(s.eventStore, "") // Empty baseDir means use home dir
 	pluginHandler := NewPluginHandler(s)
 

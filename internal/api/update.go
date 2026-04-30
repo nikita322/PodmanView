@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
+	"podmanview/internal/logger"
 	"podmanview/internal/updater"
 )
 
@@ -16,6 +16,7 @@ import (
 type UpdateHandler struct {
 	updater    *updater.Updater
 	eventStore *events.Store
+	logger     *logger.Logger
 
 	// Update state
 	updateMu     sync.RWMutex
@@ -24,10 +25,11 @@ type UpdateHandler struct {
 }
 
 // NewUpdateHandler creates a new update handler
-func NewUpdateHandler(u *updater.Updater, eventStore *events.Store) *UpdateHandler {
+func NewUpdateHandler(u *updater.Updater, eventStore *events.Store, logger *logger.Logger) *UpdateHandler {
 	return &UpdateHandler{
 		updater:    u,
 		eventStore: eventStore,
+		logger:     logger,
 	}
 }
 
@@ -96,12 +98,12 @@ func (h *UpdateHandler) Perform(w http.ResponseWriter, r *http.Request) {
 			h.updateMu.Lock()
 			h.updateStatus = &p
 			h.updateMu.Unlock()
-			log.Printf("Update progress: %s (%d%%)", p.Stage, p.Percent)
+			h.logger.Printf("Update progress: %s (%d%%)", p.Stage, p.Percent)
 		})
 
 		if err != nil {
 			h.eventStore.Add(events.EventSystemUpdate, user.Username, clientIP, false, err.Error())
-			log.Printf("Update failed: %v", err)
+			h.logger.Printf("Update failed: %v", err)
 
 			h.updateMu.Lock()
 			h.updateStatus = &updater.UpdateProgress{
@@ -114,15 +116,15 @@ func (h *UpdateHandler) Perform(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.eventStore.Add(events.EventSystemUpdate, user.Username, clientIP, true, "")
-		log.Println("Update completed successfully")
+		h.logger.Println("Update completed successfully")
 
 		// Wait a moment for clients to receive status
 		time.Sleep(2 * time.Second)
 
 		// Restart service
-		log.Println("Restarting service...")
+		h.logger.Println("Restarting service...")
 		if err := updater.RestartService(); err != nil {
-			log.Printf("Failed to restart service: %v", err)
+			h.logger.Printf("Failed to restart service: %v", err)
 		}
 	}()
 

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,5 +69,37 @@ func TestLogging(t *testing.T) {
 	}
 	if errorInfo.Size() == 0 {
 		t.Errorf("error.log is empty")
+	}
+}
+
+func TestRotation(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a rotating writer with a very small max size (100 bytes)
+	w, err := newRotatingWriter(filepath.Join(tempDir, "test.log"), 100, 3)
+	if err != nil {
+		t.Fatalf("Failed to create rotating writer: %v", err)
+	}
+	defer w.Close()
+
+	// Write data that exceeds the limit to trigger rotation
+	data := []byte("this is a test log line that should trigger rotation when written multiple times\n")
+	for i := 0; i < 5; i++ {
+		if _, err := w.Write(data); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+	}
+
+	// Check that backup files were created
+	for i := 1; i <= 3; i++ {
+		backupPath := filepath.Join(tempDir, fmt.Sprintf("test.log.%d", i))
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Errorf("Expected backup file %s to exist", backupPath)
+		}
+	}
+
+	// test.log.4 should not exist because maxBackups is 3
+	if _, err := os.Stat(filepath.Join(tempDir, "test.log.4")); !os.IsNotExist(err) {
+		t.Errorf("Expected test.log.4 to not exist (maxBackups=3)")
 	}
 }
