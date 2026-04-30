@@ -28,6 +28,9 @@ jobs:
         with:
           platforms: arm64
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Get version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -47,42 +50,25 @@ jobs:
           sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
           sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
 
-      - name: Cache apt packages and Go modules
-        uses: actions/cache@v4
+      - name: Build with Docker layer caching
+        uses: docker/build-push-action@v5
         with:
-          path: |
-            /tmp/docker-cache/arm64/apt/archives
-            /tmp/docker-cache/arm64/apt/lists
-            /tmp/docker-cache/go-mod
-          key: docker-arm64-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            docker-arm64-
-
-      - name: Build
-        run: |
-          mkdir -p /tmp/docker-cache/arm64/apt/archives /tmp/docker-cache/arm64/apt/lists /tmp/docker-cache/go-mod
-          docker run --rm --platform linux/arm64 \
-            -v ${{ github.workspace }}:/workspace \
-            -v /tmp/docker-cache/arm64/apt/archives:/var/cache/apt/archives \
-            -v /tmp/docker-cache/arm64/apt/lists:/var/lib/apt/lists \
-            -v /tmp/docker-cache/go-mod:/go/pkg/mod \
-            -w /workspace \
-            -e VERSION="${{ steps.version.outputs.VERSION }}" \
-            -e GOPATH=/go \
-            debian:trixie-slim \
-            bash -c '
-              apt-get update && \
-              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
-              go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
-            '
-          tar -czvf podmanview-linux-arm64.tar.gz podmanview web/
+          context: .
+          file: ./Dockerfile.build
+          platforms: linux/arm64
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+            TARGETARCH=arm64
+          push: false
+          outputs: type=local,dest=./out
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: arm64-artifact
-          path: podmanview-linux-arm64.tar.gz
+          path: ./out/podmanview-linux-arm64.tar.gz
           retention-days: 1
 
   build-riscv64:
@@ -104,6 +90,9 @@ jobs:
         with:
           platforms: riscv64
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Get version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -123,42 +112,25 @@ jobs:
           sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
           sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
 
-      - name: Cache apt packages and Go modules
-        uses: actions/cache@v4
+      - name: Build with Docker layer caching
+        uses: docker/build-push-action@v5
         with:
-          path: |
-            /tmp/docker-cache/riscv64/apt/archives
-            /tmp/docker-cache/riscv64/apt/lists
-            /tmp/docker-cache/go-mod
-          key: docker-riscv64-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            docker-riscv64-
-
-      - name: Build
-        run: |
-          mkdir -p /tmp/docker-cache/riscv64/apt/archives /tmp/docker-cache/riscv64/apt/lists /tmp/docker-cache/go-mod
-          docker run --rm --platform linux/riscv64 \
-            -v ${{ github.workspace }}:/workspace \
-            -v /tmp/docker-cache/riscv64/apt/archives:/var/cache/apt/archives \
-            -v /tmp/docker-cache/riscv64/apt/lists:/var/lib/apt/lists \
-            -v /tmp/docker-cache/go-mod:/go/pkg/mod \
-            -w /workspace \
-            -e VERSION="${{ steps.version.outputs.VERSION }}" \
-            -e GOPATH=/go \
-            docker.io/riscv64/debian:trixie-slim \
-            bash -c '
-              apt-get update && \
-              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
-              go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
-            '
-          tar -czvf podmanview-linux-riscv64.tar.gz podmanview web/
+          context: .
+          file: ./Dockerfile.build
+          platforms: linux/riscv64
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+            TARGETARCH=riscv64
+          push: false
+          outputs: type=local,dest=./out
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: riscv64-artifact
-          path: podmanview-linux-riscv64.tar.gz
+          path: ./out/podmanview-linux-riscv64.tar.gz
           retention-days: 1
 
   release:

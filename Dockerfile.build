@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+FROM --platform=$TARGETPLATFORM debian:trixie-slim AS builder
+ARG VERSION
+ARG TARGETARCH
+
+# Install build dependencies (cached layer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    golang-go libpam0g-dev ca-certificates git gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Download Go modules (cached layer)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Build
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -buildvcs=false \
+    -ldflags "-s -w -X main.Version=${VERSION}" \
+    -o podmanview ./cmd/podmanview
+
+RUN tar -czvf /podmanview-linux-${TARGETARCH}.tar.gz podmanview web/
+
+# Export only the artifact
+FROM scratch AS export
+COPY --from=builder /podmanview-linux-*.tar.gz /
