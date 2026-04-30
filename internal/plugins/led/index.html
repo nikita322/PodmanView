@@ -240,7 +240,7 @@
                 // Determine if we should enable or disable
                 const shouldEnable = this.currentStatus.status !== 'enabled';
 
-                const response = await fetch('/api/plugins/led/toggle', {
+                const response = await fetch('/api/plugins/led/control', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

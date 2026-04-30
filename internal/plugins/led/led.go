@@ -158,7 +158,7 @@ func (p *LEDPlugin) Routes() []plugins.Route {
 		},
 		{
 			Method:      "POST",
-			Path:        "/api/plugins/led/toggle",
+			Path:        "/api/plugins/led/control",
 			Handler:     p.handleToggleLEDs,
 			RequireAuth: true,
 		},
