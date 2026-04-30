@@ -429,8 +429,6 @@ func parseBool(s string) bool {
 	}
 }
 
-
-
 // String returns a string representation of the config (without secrets).
 func (c *Config) String() string {
 	c.mu.RLock()

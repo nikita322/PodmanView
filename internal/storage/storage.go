@@ -109,5 +109,3 @@ type Storage interface {
 	// Close closes the storage
 	Close() error
 }
-
-

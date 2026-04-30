@@ -156,9 +156,9 @@ func TestDiscoveryManagerRepublishing(t *testing.T) {
 	// Simulate publishing
 	configs := []*mqtt.SensorConfig{
 		{
-			SensorID:   "test_sensor_1",
-			Name:       "Test Sensor 1",
-			Unit:       "°C",
+			SensorID: "test_sensor_1",
+			Name:     "Test Sensor 1",
+			Unit:     "°C",
 		},
 	}
 	_ = discoveryMgr.PublishMultipleDiscoveryConfigs(configs)

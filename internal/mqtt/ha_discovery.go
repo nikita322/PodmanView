@@ -177,5 +177,3 @@ func (d *DiscoveryManager) markDiscoveryPublished() {
 		}
 	}
 }
-
-
