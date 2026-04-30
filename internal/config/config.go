@@ -21,6 +21,8 @@ const (
 	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
 	EnvSocket        = "PODMANVIEW_SOCKET"
 	EnvLogDir        = "PODMANVIEW_LOG_DIR"
+	EnvLogMaxSize    = "PODMANVIEW_LOG_MAX_SIZE"
+	EnvLogMaxBackups = "PODMANVIEW_LOG_MAX_BACKUPS"
 	// MQTT settings
 	EnvMQTTBroker   = "PODMANVIEW_MQTT_BROKER"
 	EnvMQTTClientID = "PODMANVIEW_MQTT_CLIENT_ID"
@@ -37,6 +39,8 @@ const (
 	DefaultNoAuth        = false
 	DefaultSocket        = "" // auto-detect
 	DefaultLogDir        = "./logs"
+	DefaultLogMaxSize    = 10 // MB
+	DefaultLogMaxBackups = 3
 	// MQTT defaults
 	DefaultMQTTBroker   = ""
 	DefaultMQTTClientID = ""
@@ -65,7 +69,9 @@ type Config struct {
 	socketPath string
 
 	// Logging settings
-	logDir string
+	logDir        string
+	logMaxSize    int // MB
+	logMaxBackups int
 
 	// MQTT settings
 	mqttBroker   string
@@ -128,6 +134,8 @@ func (c *Config) setDefaults() {
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
 	c.logDir = DefaultLogDir
+	c.logMaxSize = DefaultLogMaxSize
+	c.logMaxBackups = DefaultLogMaxBackups
 	// MQTT defaults
 	c.mqttBroker = DefaultMQTTBroker
 	c.mqttClientID = DefaultMQTTClientID
@@ -180,6 +188,16 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvLogDir]; ok && v != "" {
 		c.logDir = v
+	}
+	if v, ok := values[EnvLogMaxSize]; ok && v != "" {
+		if size, err := strconv.Atoi(v); err == nil && size > 0 {
+			c.logMaxSize = size
+		}
+	}
+	if v, ok := values[EnvLogMaxBackups]; ok && v != "" {
+		if backups, err := strconv.Atoi(v); err == nil && backups >= 0 {
+			c.logMaxBackups = backups
+		}
 	}
 
 	// MQTT settings
@@ -274,6 +292,8 @@ func (c *Config) toMap() map[string]string {
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
 		EnvLogDir:        c.logDir,
+		EnvLogMaxSize:    strconv.Itoa(c.logMaxSize),
+		EnvLogMaxBackups: strconv.Itoa(c.logMaxBackups),
 		// MQTT settings
 		EnvMQTTBroker:   c.mqttBroker,
 		EnvMQTTClientID: c.mqttClientID,
@@ -326,6 +346,20 @@ func (c *Config) LogDir() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.logDir
+}
+
+// LogMaxSize returns the maximum log file size in MB.
+func (c *Config) LogMaxSize() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.logMaxSize
+}
+
+// LogMaxBackups returns the maximum number of log backups to keep.
+func (c *Config) LogMaxBackups() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.logMaxBackups
 }
 
 // FilePath returns the path to the .env file.

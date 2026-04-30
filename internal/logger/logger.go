@@ -105,7 +105,15 @@ type Logger struct {
 }
 
 // New создает новый логгер с указанной директорией для логов
-func New(logDir string) (*Logger, error) {
+func New(logDir string, maxSizeMB, maxBackups int) (*Logger, error) {
+	if maxSizeMB <= 0 {
+		maxSizeMB = defaultMaxSize / (1024 * 1024)
+	}
+	if maxBackups < 0 {
+		maxBackups = defaultMaxBackups
+	}
+	maxSize := int64(maxSizeMB) * 1024 * 1024
+
 	// Создаем директорию для логов если её нет
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
@@ -114,8 +122,8 @@ func New(logDir string) (*Logger, error) {
 	// Открываем файлы для логов с ротацией
 	appWriter, err := newRotatingWriter(
 		filepath.Join(logDir, "app.log"),
-		defaultMaxSize,
-		defaultMaxBackups,
+		maxSize,
+		maxBackups,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open app.log: %w", err)
@@ -123,8 +131,8 @@ func New(logDir string) (*Logger, error) {
 
 	errorWriter, err := newRotatingWriter(
 		filepath.Join(logDir, "error.log"),
-		defaultMaxSize,
-		defaultMaxBackups,
+		maxSize,
+		maxBackups,
 	)
 	if err != nil {
 		appWriter.Close()
@@ -143,7 +151,7 @@ func New(logDir string) (*Logger, error) {
 		errorWriter: errorWriter,
 	}
 
-	logger.Printf("Logger initialized (max size: %d MB, max backups: %d)", defaultMaxSize/(1024*1024), defaultMaxBackups)
+	logger.Printf("Logger initialized (max size: %d MB, max backups: %d)", maxSizeMB, maxBackups)
 	return logger, nil
 }
 

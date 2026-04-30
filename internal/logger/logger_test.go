@@ -12,7 +12,7 @@ func TestNew(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create logger
-	logger, err := New(tempDir)
+	logger, err := New(tempDir, 10, 3)
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestLogging(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create logger
-	logger, err := New(tempDir)
+	logger, err := New(tempDir, 10, 3)
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}

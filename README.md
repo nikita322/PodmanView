@@ -107,6 +107,15 @@ PODMANVIEW_NO_AUTH=false
 
 # Podman socket path (auto-detect if empty)
 PODMANVIEW_SOCKET=
+
+# Log directory (default: ./logs)
+PODMANVIEW_LOG_DIR=./logs
+
+# Max log file size in MB before rotation (default: 10)
+PODMANVIEW_LOG_MAX_SIZE=10
+
+# Number of rotated backups to keep (default: 3)
+PODMANVIEW_LOG_MAX_BACKUPS=3
 ```
 
 #### Configuration Behavior

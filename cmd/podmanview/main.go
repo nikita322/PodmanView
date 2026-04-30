@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Initialize logger with configured directory
-	appLogger, err := logger.New(cfg.LogDir())
+	appLogger, err := logger.New(cfg.LogDir(), cfg.LogMaxSize(), cfg.LogMaxBackups())
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
