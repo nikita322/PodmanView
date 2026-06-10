@@ -1,0 +1,559 @@
+<section id="page-plugin-picoder" class="content-page">
+  <style>
+    .picoder-layout { display: flex; gap: 16px; height: calc(100vh - 140px); min-height: 500px; }
+    .picoder-sidebar { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+    .picoder-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+    .picoder-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .picoder-header h2 { margin: 0; font-size: 1.1rem; }
+
+    .picoder-accordion { flex: 1; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+    .picoder-accordion-item { margin-bottom: 6px; border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; }
+    .picoder-accordion-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; background: var(--bg-elevated); transition: background 0.15s; user-select: none; }
+    .picoder-accordion-header:hover { background: var(--card-bg-hover); }
+    .picoder-accordion-header .icon { width: 18px; height: 18px; transition: transform 0.2s; flex-shrink: 0; }
+    .picoder-accordion-item.open .picoder-accordion-header .icon { transform: rotate(90deg); }
+    .picoder-accordion-header .name { flex: 1; font-weight: 500; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picoder-accordion-header .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--primary-glow); color: var(--primary); }
+    .picoder-accordion-header .state { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+    .picoder-accordion-header .state.running { background: var(--success-bg); color: var(--success); }
+    .picoder-accordion-header .state.stopped { background: var(--danger-bg); color: var(--danger); }
+    .picoder-accordion-header .state.exited { background: var(--warning-bg); color: var(--warning); }
+
+    .picoder-accordion-body { display: none; padding: 8px; background: var(--bg); }
+    .picoder-accordion-item.open .picoder-accordion-body { display: block; }
+
+    .picoder-new-btn { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+    .picoder-new-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-glow); }
+
+    .picoder-session-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s; margin-bottom: 4px; }
+    .picoder-session-item:hover { background: var(--card-bg-hover); }
+    .picoder-session-item.active { background: var(--primary-glow); border: 1px solid var(--primary); }
+    .picoder-session-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .picoder-session-item .dot.running { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .picoder-session-item .dot.stopped { background: var(--danger); }
+    .picoder-session-item .info { flex: 1; min-width: 0; }
+    .picoder-session-item .name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picoder-session-item .meta { font-size: 0.7rem; color: var(--text-muted); }
+    .picoder-session-item .del { opacity: 0; transition: opacity 0.15s; color: var(--danger); font-size: 1rem; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+    .picoder-session-item:hover .del { opacity: 1; }
+    .picoder-session-item .del:hover { background: var(--danger-bg); }
+
+    .picoder-chat { flex: 1; display: flex; flex-direction: column; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-height: 0; }
+    .picoder-chat-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-light); background: var(--bg-elevated); }
+    .picoder-chat-header .title { flex: 1; font-weight: 500; font-size: 0.95rem; }
+    .picoder-chat-header .subtitle { font-size: 0.75rem; color: var(--text-muted); }
+    .picoder-chat-header .actions { display: flex; gap: 6px; }
+    .picoder-chat-header .actions button { padding: 4px 10px; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
+    .picoder-chat-header .actions button:hover { border-color: var(--primary); color: var(--primary); }
+    .picoder-chat-header .actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .picoder-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .picoder-msg { max-width: 90%; padding: 10px 14px; border-radius: 10px; font-size: 0.9rem; line-height: 1.5; word-break: break-word; }
+    .picoder-msg.user { align-self: flex-end; background: var(--primary-glow); border: 1px solid var(--primary); }
+    .picoder-msg.assistant { align-self: flex-start; background: var(--bg-elevated); border: 1px solid var(--border); }
+    .picoder-msg .label { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; text-transform: uppercase; }
+    .picoder-msg pre { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; margin: 6px 0; }
+    .picoder-msg code { font-family: "SF Mono", Monaco, monospace; font-size: 0.8rem; }
+    .picoder-msg .tool-call { background: var(--warning-bg); border: 1px solid var(--warning); border-radius: 6px; padding: 8px; margin: 6px 0; font-size: 0.8rem; }
+    .picoder-msg .tool-result { background: rgba(0,0,0,0.2); border-radius: 6px; padding: 8px; margin: 6px 0; font-size: 0.8rem; }
+    .picoder-msg .thinking { color: var(--text-muted); font-style: italic; border-left: 2px solid var(--primary); padding-left: 8px; margin: 6px 0; }
+
+    .picoder-input-area { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border-light); background: var(--bg-elevated); }
+    .picoder-input-area textarea { flex: 1; resize: none; min-height: 44px; max-height: 200px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.9rem; font-family: inherit; }
+    .picoder-input-area textarea:focus { outline: none; border-color: var(--primary); }
+    .picoder-input-area button { padding: 0 20px; border-radius: 10px; border: none; background: var(--primary); color: #0d1117; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .picoder-input-area button:hover { background: var(--primary-dark); }
+    .picoder-input-area button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .picoder-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 12px; }
+    .picoder-empty svg { width: 48px; height: 48px; opacity: 0.3; }
+
+    .picoder-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .picoder-modal-overlay.open { display: flex; }
+    .picoder-modal { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw; }
+    .picoder-modal h3 { margin: 0 0 16px; }
+    .picoder-modal .form-group { margin-bottom: 12px; }
+    .picoder-modal label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
+    .picoder-modal input, .picoder-modal select { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.9rem; }
+    .picoder-modal input:focus, .picoder-modal select:focus { outline: none; border-color: var(--primary); }
+    .picoder-modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .picoder-modal .actions button { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+    .picoder-modal .actions button.primary { background: var(--primary); color: #0d1117; border-color: var(--primary); font-weight: 600; }
+
+    .picoder-typing { display: flex; gap: 4px; padding: 8px 0; }
+    .picoder-typing span { width: 8px; height: 8px; background: var(--text-muted); border-radius: 50%; animation: picoder-bounce 1.4s infinite ease-in-out both; }
+    .picoder-typing span:nth-child(1) { animation-delay: -0.32s; }
+    .picoder-typing span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes picoder-bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+    .picoder-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: picoder-spin 0.8s linear infinite; }
+    @keyframes picoder-spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <div class="page-header">
+    <h1>Pi Coder</h1>
+    <div class="page-actions">
+      <button id="picoder-refresh" class="btn">Refresh</button>
+    </div>
+  </div>
+
+  <div class="picoder-layout">
+    <div class="picoder-sidebar">
+      <div class="picoder-header">
+        <h2>Containers &amp; Sessions</h2>
+      </div>
+      <div class="picoder-accordion" id="picoder-accordion">
+        <div class="picoder-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>Loading containers...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="picoder-main" id="picoder-main">
+      <div class="picoder-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span>Select a session to start coding</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="picoder-modal-overlay" id="picoder-modal">
+    <div class="picoder-modal">
+      <h3>New Session</h3>
+      <div class="form-group">
+        <label>Container</label>
+        <select id="picoder-modal-container"></select>
+      </div>
+      <div class="form-group">
+        <label>Working Directory</label>
+        <input type="text" id="picoder-modal-cwd" placeholder="/root/project">
+      </div>
+      <div class="form-group">
+        <label>Session Name</label>
+        <input type="text" id="picoder-modal-name" placeholder="e.g. Fix auth bug">
+      </div>
+      <div class="actions">
+        <button onclick="PicoderUI.closeModal()">Cancel</button>
+        <button class="primary" onclick="PicoderUI.confirmNewSession()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const PicoderUI = {
+        containers: [],
+        sessions: [],
+        activeSessionId: null,
+        ws: null,
+        messageBuffer: {},
+        reconnectTimer: null,
+
+        init() {
+          this.loadContainers();
+          this.loadSessions();
+          document.getElementById('picoder-refresh').addEventListener('click', () => {
+            this.loadContainers();
+            this.loadSessions();
+          });
+        },
+
+        async api(method, path, body) {
+          const opts = {
+            method,
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token'), 'Content-Type': 'application/json' }
+          };
+          if (body) opts.body = JSON.stringify(body);
+          const res = await fetch(path, opts);
+          if (!res.ok) throw new Error(await res.text());
+          return res.json();
+        },
+
+        async loadContainers() {
+          try {
+            this.containers = await this.api('GET', '/api/plugins/picoder/containers');
+            this.renderAccordion();
+          } catch (e) {
+            console.error('Failed to load containers:', e);
+          }
+        },
+
+        async loadSessions() {
+          try {
+            this.sessions = await this.api('GET', '/api/plugins/picoder/sessions');
+            this.renderAccordion();
+            if (this.activeSessionId) this.updateChatHeader();
+          } catch (e) {
+            console.error('Failed to load sessions:', e);
+          }
+        },
+
+        renderAccordion() {
+          const root = document.getElementById('picoder-accordion');
+          const hostSessions = this.sessions.filter(s => !s.container_id);
+          const html = [];
+
+          // Host entry
+          html.push(this.renderContainerItem({id:'', name:'Host (no container)', image:'', state:'', status:'', binds:[], session_count:hostSessions.length}, hostSessions));
+
+          this.containers.forEach(c => {
+            const sessions = this.sessions.filter(s => s.container_id === c.id);
+            html.push(this.renderContainerItem(c, sessions));
+          });
+
+          root.innerHTML = html.join('');
+
+          // bind accordion toggles
+          root.querySelectorAll('.picoder-accordion-header').forEach(h => {
+            h.addEventListener('click', () => h.parentElement.classList.toggle('open'));
+          });
+        },
+
+        renderContainerItem(c, sessions) {
+          const stateClass = c.state === 'running' ? 'running' : (c.state === 'exited' ? 'exited' : 'stopped');
+          return `
+            <div class="picoder-accordion-item ${sessions.length>0?'open':''}" data-container="${c.id}">
+              <div class="picoder-accordion-header">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                <span class="name" title="${c.name || 'Host'}">${c.name || 'Host'}</span>
+                <span class="state ${stateClass}">${c.state || 'host'}</span>
+                <span class="badge">${sessions.length}</span>
+              </div>
+              <div class="picoder-accordion-body">
+                <button class="picoder-new-btn" onclick="PicoderUI.openNewModal('${c.id}')">+ New Session</button>
+                ${sessions.map(s => this.renderSessionItem(s)).join('')}
+              </div>
+            </div>
+          `;
+        },
+
+        renderSessionItem(s) {
+          const isActive = s.id === this.activeSessionId;
+          return `
+            <div class="picoder-session-item ${isActive?'active':''}" data-session="${s.id}" onclick="PicoderUI.selectSession('${s.id}')">
+              <div class="dot ${s.status==='running'?'running':'stopped'}"></div>
+              <div class="info">
+                <div class="name">${this.escapeHtml(s.name)}</div>
+                <div class="meta">${this.escapeHtml(s.cwd)} &middot; ${s.message_count||0} msgs</div>
+              </div>
+              <span class="del" onclick="event.stopPropagation(); PicoderUI.deleteSession('${s.id}')">&times;</span>
+            </div>
+          `;
+        },
+
+        openNewModal(containerId) {
+          const sel = document.getElementById('picoder-modal-container');
+          sel.innerHTML = '<option value="">Host (no container)</option>' +
+            this.containers.map(c => `<option value="${c.id}">${this.escapeHtml(c.name || c.id.slice(0,12))}</option>`).join('');
+          sel.value = containerId || '';
+          // auto-fill cwd from selected container binds
+          const c = this.containers.find(x => x.id === containerId);
+          document.getElementById('picoder-modal-cwd').value = (c && c.binds[0]) ? c.binds[0] : '/root';
+          document.getElementById('picoder-modal-name').value = '';
+          document.getElementById('picoder-modal').classList.add('open');
+        },
+
+        closeModal() {
+          document.getElementById('picoder-modal').classList.remove('open');
+        },
+
+        async confirmNewSession() {
+          const containerId = document.getElementById('picoder-modal-container').value;
+          const cwd = document.getElementById('picoder-modal-cwd').value;
+          const name = document.getElementById('picoder-modal-name').value || 'New Session';
+          this.closeModal();
+          try {
+            const s = await this.api('POST', '/api/plugins/picoder/sessions', {container_id: containerId, name, cwd});
+            this.sessions.push(s);
+            this.renderAccordion();
+            this.selectSession(s.id);
+            if (typeof App !== 'undefined' && App.showToast) App.showToast('Session created', 'success');
+          } catch (e) {
+            if (typeof App !== 'undefined' && App.showToast) App.showToast('Failed: ' + e.message, 'error');
+          }
+        },
+
+        async deleteSession(id) {
+          if (!confirm('Delete this session?')) return;
+          try {
+            await this.api('DELETE', '/api/plugins/picoder/sessions/' + id);
+            if (this.activeSessionId === id) this.disconnect();
+            this.sessions = this.sessions.filter(s => s.id !== id);
+            this.renderAccordion();
+          } catch (e) {
+            if (typeof App !== 'undefined' && App.showToast) App.showToast('Failed: ' + e.message, 'error');
+          }
+        },
+
+        selectSession(id) {
+          if (this.activeSessionId === id) return;
+          this.disconnect();
+          this.activeSessionId = id;
+          this.renderAccordion();
+          this.renderChat();
+          this.connectWS(id);
+        },
+
+        renderChat() {
+          const main = document.getElementById('picoder-main');
+          const s = this.sessions.find(x => x.id === this.activeSessionId);
+          if (!s) {
+            main.innerHTML = `<div class="picoder-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span>Select a session to start coding</span></div>`;
+            return;
+          }
+          main.innerHTML = `
+            <div class="picoder-chat">
+              <div class="picoder-chat-header">
+                <div>
+                  <div class="title">${this.escapeHtml(s.name)}</div>
+                  <div class="subtitle">${this.escapeHtml(s.cwd)} &middot; ${s.status}</div>
+                </div>
+                <div class="actions">
+                  <button onclick="PicoderUI.sendCommand('compact')" title="Compact context">Compact</button>
+                  <button onclick="PicoderUI.sendCommand('export')" title="Export HTML">Export</button>
+                  <button onclick="PicoderUI.sendCommand('abort')" title="Abort">Abort</button>
+                </div>
+              </div>
+              <div class="picoder-messages" id="picoder-messages"></div>
+              <div class="picoder-input-area">
+                <textarea id="picoder-input" placeholder="Ask pi to do something... Shift+Enter for new line" rows="1"></textarea>
+                <button id="picoder-send" onclick="PicoderUI.sendPrompt()">Send</button>
+              </div>
+            </div>
+          `;
+          const ta = document.getElementById('picoder-input');
+          ta.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendPrompt(); }
+          });
+          ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'; });
+        },
+
+        updateChatHeader() {
+          const s = this.sessions.find(x => x.id === this.activeSessionId);
+          if (!s) return;
+          const title = document.querySelector('.picoder-chat-header .title');
+          const sub = document.querySelector('.picoder-chat-header .subtitle');
+          if (title) title.textContent = s.name;
+          if (sub) sub.textContent = s.cwd + ' \u00b7 ' + s.status;
+        },
+
+        connectWS(id) {
+          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const ws = new WebSocket(proto + '//' + location.host + '/api/plugins/picoder/sessions/' + id + '/ws');
+          this.ws = ws;
+
+          ws.onopen = () => {
+            console.log('Pi WS connected');
+            // request current state
+            ws.send(JSON.stringify({type: 'get_state'}));
+          };
+
+          ws.onmessage = (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              this.handlePiEvent(msg);
+            } catch (e) {
+              console.error('Invalid JSON from pi:', e, ev.data.slice(0,200));
+            }
+          };
+
+          ws.onclose = () => {
+            console.log('Pi WS closed');
+            this.ws = null;
+            if (this.activeSessionId === id) {
+              this.reconnectTimer = setTimeout(() => this.connectWS(id), 2000);
+            }
+          };
+
+          ws.onerror = (err) => {
+            console.error('Pi WS error:', err);
+          };
+        },
+
+        disconnect() {
+          if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+          if (this.ws) { this.ws.close(); this.ws = null; }
+          this.activeSessionId = null;
+          this.messageBuffer = {};
+        },
+
+        sendPrompt() {
+          const input = document.getElementById('picoder-input');
+          const text = input.value.trim();
+          if (!text || !this.ws) return;
+          this.appendMessage('user', text);
+          this.ws.send(JSON.stringify({type: 'prompt', message: text}));
+          input.value = '';
+          input.style.height = 'auto';
+        },
+
+        sendCommand(cmd) {
+          if (!this.ws) return;
+          if (cmd === 'compact') this.ws.send(JSON.stringify({type: 'compact'}));
+          if (cmd === 'abort') this.ws.send(JSON.stringify({type: 'abort'}));
+          if (cmd === 'export') this.ws.send(JSON.stringify({type: 'export_html'}));
+        },
+
+        handlePiEvent(msg) {
+          const container = document.getElementById('picoder-messages');
+          if (!container) return;
+
+          // handle extension_ui_request (select, confirm, input, editor)
+          if (msg.type === 'extension_ui_request') {
+            this.handleExtensionUI(msg);
+            return;
+          }
+
+          // handle responses
+          if (msg.type === 'response') {
+            // silent for now, could show toasts
+            return;
+          }
+
+          if (msg.type === 'message_update') {
+            const ev = msg.assistantMessageEvent;
+            if (!ev) return;
+            if (ev.type === 'text_start') {
+              this.currentAssistantDiv = document.createElement('div');
+              this.currentAssistantDiv.className = 'picoder-msg assistant';
+              this.currentAssistantDiv.innerHTML = '<div class="label">Pi</div><div class="content"></div>';
+              container.appendChild(this.currentAssistantDiv);
+              container.scrollTop = container.scrollHeight;
+            } else if (ev.type === 'text_delta') {
+              if (this.currentAssistantDiv) {
+                const content = this.currentAssistantDiv.querySelector('.content');
+                content.textContent += ev.delta;
+                container.scrollTop = container.scrollHeight;
+              }
+            } else if (ev.type === 'thinking_delta') {
+              if (this.currentAssistantDiv) {
+                let thinking = this.currentAssistantDiv.querySelector('.thinking');
+                if (!thinking) {
+                  thinking = document.createElement('div');
+                  thinking.className = 'thinking';
+                  this.currentAssistantDiv.appendChild(thinking);
+                }
+                thinking.textContent += ev.delta;
+                container.scrollTop = container.scrollHeight;
+              }
+            } else if (ev.type === 'toolcall_start') {
+              if (this.currentAssistantDiv) {
+                const tool = document.createElement('div');
+                tool.className = 'tool-call';
+                tool.innerHTML = `<strong>Tool:</strong> ${ev.toolName || ''}`;
+                this.currentAssistantDiv.appendChild(tool);
+                container.scrollTop = container.scrollHeight;
+              }
+            } else if (ev.type === 'done') {
+              this.currentAssistantDiv = null;
+            }
+            return;
+          }
+
+          if (msg.type === 'tool_execution_start') {
+            const div = document.createElement('div');
+            div.className = 'picoder-msg assistant';
+            div.dataset.toolId = msg.toolCallId;
+            div.innerHTML = `<div class="label">Tool: ${msg.toolName}</div><div class="content"><div class="picoder-spinner"></div> Running ${msg.toolName}...</div>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            return;
+          }
+
+          if (msg.type === 'tool_execution_update') {
+            const div = container.querySelector(`[data-tool-id="${msg.toolCallId}"]`);
+            if (div && msg.partialResult) {
+              const text = msg.partialResult.content?.map(c => c.text).join('') || '';
+              div.querySelector('.content').textContent = text;
+              container.scrollTop = container.scrollHeight;
+            }
+            return;
+          }
+
+          if (msg.type === 'tool_execution_end') {
+            const div = container.querySelector(`[data-tool-id="${msg.toolCallId}"]`);
+            if (div) {
+              const text = msg.result?.content?.map(c => c.text).join('') || '';
+              const isErr = msg.isError ? '<span style="color:var(--danger)">[ERROR]</span> ' : '';
+              div.querySelector('.content').innerHTML = isErr + '<pre><code>' + this.escapeHtml(text) + '</code></pre>';
+              container.scrollTop = container.scrollHeight;
+            }
+            return;
+          }
+
+          if (msg.type === 'agent_start') {
+            const div = document.createElement('div');
+            div.className = 'picoder-msg assistant';
+            div.innerHTML = '<div class="picoder-typing"><span></span><span></span><span></span></div>';
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            this.typingDiv = div;
+            return;
+          }
+
+          if (msg.type === 'agent_end') {
+            if (this.typingDiv) { this.typingDiv.remove(); this.typingDiv = null; }
+            this.currentAssistantDiv = null;
+            return;
+          }
+        },
+
+        async handleExtensionUI(req) {
+          const ws = this.ws;
+          if (!ws) return;
+          const resp = {type: 'extension_ui_response', id: req.id};
+          if (req.method === 'confirm') {
+            resp.confirmed = confirm(req.title + '\n' + (req.message || ''));
+          } else if (req.method === 'input') {
+            const val = prompt(req.title || '', req.placeholder || '');
+            if (val === null) resp.cancelled = true; else resp.value = val;
+          } else if (req.method === 'select') {
+            const val = prompt((req.title || 'Select:') + '\n' + (req.options || []).join('\n'));
+            if (val === null) resp.cancelled = true; else resp.value = val;
+          } else if (req.method === 'editor') {
+            const val = prompt(req.title || 'Edit:', req.prefill || '');
+            if (val === null) resp.cancelled = true; else resp.value = val;
+          } else {
+            // notify / setStatus / setWidget — fire and forget, no response needed
+            return;
+          }
+          ws.send(JSON.stringify(resp));
+        },
+
+        appendMessage(role, text) {
+          const container = document.getElementById('picoder-messages');
+          if (!container) return;
+          const div = document.createElement('div');
+          div.className = 'picoder-msg ' + role;
+          div.innerHTML = '<div class="label">' + (role==='user'?'You':'Pi') + '</div><div class="content">' + this.escapeHtml(text) + '</div>';
+          container.appendChild(div);
+          container.scrollTop = container.scrollHeight;
+        },
+
+        escapeHtml(text) {
+          const div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        }
+      };
+
+      // Expose globally
+      window.PicoderUI = PicoderUI;
+
+      // Initialize when plugin page is shown
+      document.addEventListener('plugin-page-shown', function(e) {
+        if (e.detail && e.detail.name === 'picoder') {
+          PicoderUI.init();
+        }
+      });
+
+      // Also init if page is already visible when loaded
+      const page = document.getElementById('page-plugin-picoder');
+      if (page && !page.classList.contains('hidden')) {
+        PicoderUI.init();
+      }
+    })();
+  </script>
+</section>

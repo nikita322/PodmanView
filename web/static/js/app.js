@@ -534,6 +534,11 @@ const App = {
         const targetPage = document.getElementById('page-' + page);
         if (targetPage) {
             targetPage.classList.remove('hidden');
+        } else if (page.startsWith('plugin-')) {
+            // Plugin page: load via PluginsManager
+            const pluginName = page.replace('plugin-', '');
+            PluginsManager.openPluginSettings(pluginName);
+            return;
         } else {
             console.error('[App] Page not found: page-' + page);
         }
