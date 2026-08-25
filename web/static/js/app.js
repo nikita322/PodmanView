@@ -6,9 +6,24 @@ const UserRole = Object.freeze({
     READONLY: 'readonly'
 });
 
+// Page identifiers (values must match data-page attributes and element ids in index.html)
+const Page = Object.freeze({
+    DASHBOARD: 'dashboard',
+    CONTAINERS: 'containers',
+    IMAGES: 'images',
+    TERMINAL: 'terminal',
+    FILES: 'files',
+    PLUGINS: 'plugins'
+});
+
+// Plugin pages have dynamic names: "plugin-<name>"
+const pluginPage = (name) => 'plugin-' + name;
+const isPluginPage = (page) => typeof page === 'string' && page.startsWith('plugin-');
+const pluginNameFromPage = (page) => page.replace('plugin-', '');
+
 const App = {
     user: null,
-    currentPage: 'dashboard',
+    currentPage: Page.DASHBOARD,
     terminal: null,
     terminalSocket: null,
     terminalFitAddon: null,
@@ -310,15 +325,22 @@ const App = {
             });
         });
 
+        // Browser back/forward navigation (History API)
+        window.addEventListener('popstate', () => {
+            if (!this.user) return;
+            const page = this.pathToPage(window.location.pathname);
+            this.navigateTo(page, { push: false });
+        });
+
         // Dashboard
         document.getElementById('refresh-dashboard').addEventListener('click', () => this.loadDashboard());
-        document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => this.setAutoRefresh('dashboard', e.target.checked));
+        document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => this.setAutoRefresh(Page.DASHBOARD, e.target.checked));
         document.getElementById('system-reboot-btn').addEventListener('click', () => this.confirmAction('Reboot Host', 'Are you sure you want to reboot the host system? All containers will be stopped.', () => this.systemReboot()));
         document.getElementById('system-shutdown-btn').addEventListener('click', () => this.confirmAction('Shutdown Host', 'Are you sure you want to shutdown the host system? All containers will be stopped and the system will power off.', () => this.systemShutdown()));
 
         // Containers page
         document.getElementById('refresh-containers').addEventListener('click', () => this.loadContainers());
-        document.getElementById('auto-refresh-containers').addEventListener('change', (e) => this.setAutoRefresh('containers', e.target.checked));
+        document.getElementById('auto-refresh-containers').addEventListener('change', (e) => this.setAutoRefresh(Page.CONTAINERS, e.target.checked));
         document.getElementById('create-container-btn').addEventListener('click', () => this.showModal('modal-create-container'));
         document.getElementById('create-container-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -327,7 +349,7 @@ const App = {
 
         // Images page
         document.getElementById('refresh-images').addEventListener('click', () => this.loadImages());
-        document.getElementById('auto-refresh-images').addEventListener('change', (e) => this.setAutoRefresh('images', e.target.checked));
+        document.getElementById('auto-refresh-images').addEventListener('change', (e) => this.setAutoRefresh(Page.IMAGES, e.target.checked));
         document.getElementById('pull-image-btn').addEventListener('click', () => this.showModal('modal-pull'));
         document.getElementById('pull-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -488,8 +510,9 @@ const App = {
             document.body.classList.remove('is-admin');
         }
 
-        // Load initial page
-        this.navigateTo('dashboard');
+        // Load initial page from URL (preserves page on refresh, supports deep links)
+        const initialPage = this.pathToPage(window.location.pathname);
+        this.navigateTo(initialPage, { push: false });
 
         // Start checking for new events
         this.startEventsCheck();
@@ -503,10 +526,68 @@ const App = {
         return this.user && this.user.role === UserRole.ADMIN;
     },
 
+    /**
+     * Check if a page requires admin role
+     * @param {string} page
+     * @returns {boolean}
+     */
+    requiresAdmin(page) {
+        if (page === Page.TERMINAL || page === Page.FILES || page === Page.PLUGINS) return true;
+        if (isPluginPage(page)) return true;
+        return false;
+    },
+
+    /**
+     * Map a page name to a URL path
+     * @param {string} page
+     * @returns {string}
+     */
+    pageToPath(page) {
+        if (page === Page.DASHBOARD) return '/';
+        if (isPluginPage(page)) return '/plugins/' + pluginNameFromPage(page);
+        return '/' + page;
+    },
+
+    /**
+     * Map a URL path to a page name
+     * @param {string} path
+     * @returns {string}
+     */
+    pathToPage(path) {
+        const clean = path.replace(/^\/+|\/+$/g, '');
+        if (clean === '') return Page.DASHBOARD;
+
+        const segments = clean.split('/');
+        if (segments.length === 1) {
+            return Object.values(Page).includes(segments[0]) ? segments[0] : Page.DASHBOARD;
+        }
+        if (segments.length === 2 && segments[0] === Page.PLUGINS) {
+            return pluginPage(segments[1]);
+        }
+        return Page.DASHBOARD;
+    },
+
     // Navigate to page
-    navigateTo(page) {
+    navigateTo(page, options = {}) {
+        const { push = true } = options;
+
+        // Guard: admin-only pages require admin role
+        if (this.requiresAdmin(page) && !this.isAdmin()) {
+            page = Page.DASHBOARD;
+        }
+
+        // Sync URL with the target page (enables refresh, deep links, back/forward)
+        const targetPath = this.pageToPath(page);
+        if (window.location.pathname !== targetPath) {
+            if (push) {
+                history.pushState({ page }, '', targetPath);
+            } else {
+                history.replaceState({ page }, '', targetPath);
+            }
+        }
+
         // Cleanup previous page resources
-        if (this.currentPage === 'terminal') {
+        if (this.currentPage === Page.TERMINAL) {
             this.cleanupHostTerminal();
         }
         // Stop auto-refresh on previous page
@@ -534,10 +615,9 @@ const App = {
         const targetPage = document.getElementById('page-' + page);
         if (targetPage) {
             targetPage.classList.remove('hidden');
-        } else if (page.startsWith('plugin-')) {
+        } else if (isPluginPage(page)) {
             // Plugin page: load via PluginsManager
-            const pluginName = page.replace('plugin-', '');
-            PluginsManager.openPluginSettings(pluginName);
+            PluginsManager.openPluginSettings(pluginNameFromPage(page));
             return;
         } else {
             console.error('[App] Page not found: page-' + page);
@@ -545,25 +625,25 @@ const App = {
 
         // Load page data and restore auto-refresh
         switch (page) {
-            case 'dashboard':
+            case Page.DASHBOARD:
                 this.loadDashboard();
-                this.restoreAutoRefresh('dashboard');
+                this.restoreAutoRefresh(Page.DASHBOARD);
                 break;
-            case 'containers':
+            case Page.CONTAINERS:
                 this.loadContainers();
-                this.restoreAutoRefresh('containers');
+                this.restoreAutoRefresh(Page.CONTAINERS);
                 break;
-            case 'images':
+            case Page.IMAGES:
                 this.loadImages();
-                this.restoreAutoRefresh('images');
+                this.restoreAutoRefresh(Page.IMAGES);
                 break;
-            case 'terminal':
+            case Page.TERMINAL:
                 this.loadXterm().then(() => this.initHostTerminal());
                 break;
-            case 'files':
+            case Page.FILES:
                 this.initFileManager();
                 break;
-            case 'plugins':
+            case Page.PLUGINS:
                 console.log('[App] Loading plugins page');
                 break;
         }
@@ -972,7 +1052,7 @@ const App = {
         if (!wsToken) {
             this.hostTerminal.writeln('\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
             // Schedule reconnect if this is a reconnection attempt
-            if (this.hostTerminalReconnecting && this.currentPage === 'terminal') {
+            if (this.hostTerminalReconnecting && this.currentPage === Page.TERMINAL) {
                 this.scheduleHostTerminalReconnect();
             }
             return;
@@ -1027,7 +1107,7 @@ const App = {
                 // Ignore close events from stale sockets
                 if (this.hostTerminalSocket !== socket) return;
                 // Only attempt reconnect if we're still on terminal page and not intentionally closing
-                if (this.currentPage === 'terminal' && !event.wasClean && event.code !== 1000) {
+                if (this.currentPage === Page.TERMINAL && !event.wasClean && event.code !== 1000) {
                     this.scheduleHostTerminalReconnect();
                 } else if (this.hostTerminal) {
                     this.hostTerminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m');
@@ -1049,7 +1129,7 @@ const App = {
         } catch (error) {
             this.hostTerminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
             // Schedule reconnect on error
-            if (this.currentPage === 'terminal') {
+            if (this.currentPage === Page.TERMINAL) {
                 this.scheduleHostTerminalReconnect();
             }
         }
@@ -1065,7 +1145,7 @@ const App = {
         this.hostTerminalReconnectAttempts++;
 
         this.hostTerminalReconnectTimer = setTimeout(() => {
-            if (this.currentPage === 'terminal') {
+            if (this.currentPage === Page.TERMINAL) {
                 this.connectHostTerminalSocket();
             }
         }, delay);
@@ -1141,9 +1221,9 @@ const App = {
 
     // Auto-refresh configuration per page
     autoRefreshConfig: {
-        dashboard: { toggle: 'auto-refresh-toggle', button: 'refresh-dashboard', loader: 'loadDashboard' },
-        containers: { toggle: 'auto-refresh-containers', button: 'refresh-containers', loader: 'loadContainers' },
-        images: { toggle: 'auto-refresh-images', button: 'refresh-images', loader: 'loadImages' }
+        [Page.DASHBOARD]: { toggle: 'auto-refresh-toggle', button: 'refresh-dashboard', loader: 'loadDashboard' },
+        [Page.CONTAINERS]: { toggle: 'auto-refresh-containers', button: 'refresh-containers', loader: 'loadContainers' },
+        [Page.IMAGES]: { toggle: 'auto-refresh-images', button: 'refresh-images', loader: 'loadImages' }
     },
 
     // Set auto-refresh for a page
