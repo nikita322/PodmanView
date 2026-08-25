@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
+	"strings"
 )
 
 type contextKey string
@@ -56,6 +58,76 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), UserContextKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// RequireAuthOrToken authenticates the request using either a valid JWT
+// session cookie or the configured static API token.
+func (m *Middleware) RequireAuthOrToken(apiToken string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Try a valid session cookie first.
+		if cookie, err := r.Cookie(CookieName); err == nil {
+			if claims, err := m.jwtManager.ValidateToken(cookie.Value); err == nil {
+				user := &User{
+					Username: claims.Username,
+					UID:      claims.UID,
+					Role:     claims.Role,
+				}
+				ctx := context.WithValue(r.Context(), UserContextKey, user)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			// Invalid cookie: clear it, but still allow a valid API token below.
+			http.SetCookie(w, &http.Cookie{
+				Name:     CookieName,
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+			})
+		}
+
+		// 2. Try the static API token.
+		if apiToken != "" && validAPIToken(r, apiToken) {
+			user := &User{
+				Username: "api_token",
+				UID:      "0",
+				Role:     RoleAdmin,
+			}
+			ctx := context.WithValue(r.Context(), UserContextKey, user)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// 3. Unauthorized.
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
+// apiTokenFromRequest extracts a candidate API token from the request.
+func apiTokenFromRequest(r *http.Request) string {
+	if token := r.URL.Query().Get("api_token"); token != "" {
+		return token
+	}
+
+	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+	}
+
+	if header := r.Header.Get("X-API-Token"); header != "" {
+		return header
+	}
+
+	return ""
+}
+
+// validAPIToken reports whether the request carries the configured API token.
+func validAPIToken(r *http.Request, apiToken string) bool {
+	candidate := apiTokenFromRequest(r)
+	if candidate == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(apiToken)) == 1
 }
 
 // GetUserFromContext extracts user from request context

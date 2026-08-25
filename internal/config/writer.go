@@ -33,6 +33,7 @@ var envTemplate = []envEntry{
 	{"PODMANVIEW_JWT_SECRET", "# JWT secret key (auto-generated, do not share!)"},
 	{"PODMANVIEW_JWT_EXPIRATION", "# JWT token expiration in seconds (default: 24 hours)"},
 	{"PODMANVIEW_NO_AUTH", "# Disable authentication (true/false, for development only!)"},
+	{"PODMANVIEW_API_TOKEN", "# Static API token for machine-to-machine access (auto-generated)"},
 	{"", ""},
 	{"", "# ==================="},
 	{"", "# Podman Settings"},

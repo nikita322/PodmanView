@@ -13,16 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
 	"podmanview/internal/storage"
 )
 
 //go:embed index.html
 var htmlContent []byte
-
-// MQTTConfig is an alias for mqtt.Config for plugin-specific settings
-type MQTTConfig = mqtt.Config
 
 // TemperaturePlugin monitors system temperatures
 type TemperaturePlugin struct {
@@ -34,11 +30,6 @@ type TemperaturePlugin struct {
 	backgroundCtx    context.Context
 	backgroundCancel context.CancelFunc
 	bgMutex          sync.Mutex
-	mqttEnabled      bool
-	mqttSettings     mqtt.Config
-	mqttClient       *mqtt.Client
-	mqttPublisher    *mqtt.Publisher
-	mqttDiscovery    *mqtt.DiscoveryManager
 }
 
 // Temperature represents a temperature sensor reading
@@ -64,17 +55,14 @@ func New() *TemperaturePlugin {
 	return &TemperaturePlugin{
 		BasePlugin: plugins.NewBasePlugin(
 			"temperature",
-			"System temperature monitoring",
-			"1.0.0",
+			"System temperature monitoring. Data: GET /api/plugins/temperature/data (session or PODMANVIEW_API_TOKEN)",
+			"2.0.0",
 			htmlContent,
 		),
 		updatePeriod: 15 * time.Second, // Update every 15 seconds
 		cachedData: &TemperatureData{
 			Temperatures: []Temperature{},
 			StorageTemps: []StorageTemp{},
-		},
-		mqttSettings: mqtt.Config{
-			Prefix: "podmanview",
 		},
 	}
 }
@@ -83,23 +71,8 @@ func New() *TemperaturePlugin {
 func (p *TemperaturePlugin) Init(ctx context.Context, deps *plugins.PluginDependencies) error {
 	p.SetDependencies(deps)
 
-	// Load settings from storage (update interval, MQTT enabled state, MQTT config)
+	// Load settings from storage (update interval)
 	p.loadSettings(deps.Storage)
-
-	// Initialize MQTT client if enabled and configured
-	if p.mqttEnabled && p.mqttSettings.Broker != "" {
-		if err := p.createMQTTClient(); err != nil {
-			if p.Logger() != nil {
-				p.Logger().Printf("[%s] Failed to create MQTT client: %v", p.Name(), err)
-			}
-		} else if err := p.mqttClient.Connect(); err != nil {
-			if p.Logger() != nil {
-				p.Logger().Printf("[%s] Failed to connect to MQTT: %v", p.Name(), err)
-			}
-		} else {
-			p.mqttClient.Publish("sensor/temperature/availability", []byte("online"))
-		}
-	}
 
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Plugin initialized", p.Name())
@@ -129,9 +102,6 @@ func (p *TemperaturePlugin) Stop(ctx context.Context) error {
 	}
 	p.bgMutex.Unlock()
 
-	// Graceful MQTT shutdown
-	p.disconnectMQTT()
-
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Plugin stopped gracefully", p.Name())
 	}
@@ -157,18 +127,6 @@ func (p *TemperaturePlugin) Routes() []plugins.Route {
 			Method:      "POST",
 			Path:        "/api/plugins/temperature/settings",
 			Handler:     p.handleUpdateSettings,
-			RequireAuth: true,
-		},
-		{
-			Method:      "GET",
-			Path:        "/api/plugins/temperature/mqtt",
-			Handler:     p.handleGetMQTTStatus,
-			RequireAuth: true,
-		},
-		{
-			Method:      "POST",
-			Path:        "/api/plugins/temperature/mqtt",
-			Handler:     p.handleToggleMQTT,
 			RequireAuth: true,
 		},
 	}
@@ -252,37 +210,12 @@ func (p *TemperaturePlugin) updateTemperatureData() {
 	p.mu.Lock()
 	p.cachedData = newData
 	p.lastUpdate = time.Now()
-	mqttEnabled := p.mqttEnabled
-	client := p.mqttClient
-	publisher := p.mqttPublisher
-	discovery := p.mqttDiscovery
 	p.mu.Unlock()
 
 	// Log update
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Temperature data updated: %d CPU sensors, %d storage devices",
 			p.Name(), len(newData.Temperatures), len(newData.StorageTemps))
-	}
-
-	// Publish via local MQTT client
-	if mqttEnabled && client != nil && client.IsConnected() && publisher != nil {
-		// 1. Aggregated JSON (1 message instead of N)
-		publisher.PublishAggregated("sensor/temperature/state", newData)
-
-		// 2. Discovery if needed
-		if discovery != nil {
-			currentCount := len(newData.Temperatures)
-			for _, storage := range newData.StorageTemps {
-				currentCount += len(storage.Sensors)
-			}
-
-			if discovery.ShouldRepublishDiscovery(currentCount) {
-				p.publishDiscoveryConfigs(newData, client, publisher, discovery)
-			}
-		}
-
-		// 3. Individual sensors
-		p.publishIndividualSensors(newData, publisher)
 	}
 }
 
@@ -324,108 +257,6 @@ func (p *TemperaturePlugin) loadSettings(st storage.Storage) {
 		// Save default interval if not set
 		st.SetInt(p.Name(), "updateInterval", 15)
 	}
-
-	// Load MQTT enabled state
-	mqttEnabled, err := st.GetBool(p.Name(), "mqttEnabled")
-	if err == nil {
-		p.mu.Lock()
-		p.mqttEnabled = mqttEnabled
-		p.mu.Unlock()
-		if p.Logger() != nil {
-			p.Logger().Printf("[%s] Loaded MQTT enabled state: %v", p.Name(), mqttEnabled)
-		}
-	} else {
-		// Save default state if not set
-		st.SetBool(p.Name(), "mqttEnabled", false)
-	}
-
-	// Load MQTT settings
-	var settings mqtt.Config
-	if err := st.GetJSON(p.Name(), "mqttSettings", &settings); err == nil {
-		p.mu.Lock()
-		p.mqttSettings = settings
-		if p.mqttSettings.Prefix == "" {
-			p.mqttSettings.Prefix = "podmanview"
-		}
-		p.mu.Unlock()
-		if p.Logger() != nil {
-			p.Logger().Printf("[%s] Loaded MQTT settings: broker=%s", p.Name(), settings.Broker)
-		}
-	} else {
-		// Save default settings if not set
-		st.SetJSON(p.Name(), "mqttSettings", p.mqttSettings)
-	}
-}
-
-// saveMQTTSettings saves MQTT settings to storage and updates the client
-func (p *TemperaturePlugin) saveMQTTSettings(settings mqtt.Config) error {
-	deps := p.Deps()
-	if deps == nil || deps.Storage == nil {
-		return nil
-	}
-
-	if err := deps.Storage.SetJSON(p.Name(), "mqttSettings", settings); err != nil {
-		return err
-	}
-
-	p.mu.Lock()
-	p.mqttSettings = settings
-	p.mu.Unlock()
-
-	return nil
-}
-
-// createMQTTClient creates a new MQTT client based on current settings
-func (p *TemperaturePlugin) createMQTTClient() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Disconnect existing client if any
-	if p.mqttClient != nil {
-		p.mqttClient.Disconnect()
-		p.mqttClient = nil
-		p.mqttPublisher = nil
-		p.mqttDiscovery = nil
-	}
-
-	if p.mqttSettings.Broker == "" {
-		return nil
-	}
-
-	cfg := mqtt.Config{
-		Broker:   p.mqttSettings.Broker,
-		ClientID: p.mqttSettings.ClientID,
-		Username: p.mqttSettings.Username,
-		Password: p.mqttSettings.Password,
-		Prefix:   p.mqttSettings.Prefix,
-		UseTLS:   p.mqttSettings.UseTLS,
-	}
-
-	client, err := mqtt.New(cfg, p.Logger())
-	if err != nil {
-		return err
-	}
-
-	p.mqttClient = client
-	p.mqttPublisher = mqtt.NewPublisher(client, p.Logger())
-	p.mqttDiscovery = mqtt.NewDiscoveryManager(client, p.Logger(), p.Deps().Storage, p.Name())
-
-	return nil
-}
-
-// disconnectMQTT disconnects the MQTT client
-func (p *TemperaturePlugin) disconnectMQTT() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.mqttClient != nil && p.mqttClient.IsConnected() {
-		p.mqttClient.Publish("sensor/temperature/availability", []byte("offline"))
-		time.Sleep(100 * time.Millisecond)
-		p.mqttClient.Disconnect()
-	}
-	p.mqttClient = nil
-	p.mqttPublisher = nil
-	p.mqttDiscovery = nil
 }
 
 // GetFriendlyName converts system sensor names to human-readable names
@@ -646,110 +477,5 @@ func getNVMeTemperaturesGrouped() []StorageTemp {
 		}
 	}
 
-	return result
-}
-
-// publishIndividualSensors publishes individual sensors through the local Publisher
-func (p *TemperaturePlugin) publishIndividualSensors(data *TemperatureData, publisher *mqtt.Publisher) {
-	if data == nil || publisher == nil {
-		return
-	}
-
-	// CPU/SoC temperatures
-	for _, temp := range data.Temperatures {
-		sensorData := &mqtt.SensorData{
-			ID:    temp.Label,
-			Label: temp.Label,
-			Value: temp.Temp,
-			Attributes: map[string]interface{}{
-				"temperature": temp.Temp,
-				"label":       temp.Label,
-				"unit":        "°C",
-			},
-		}
-		publisher.PublishSensorState(sensorData)
-	}
-
-	// Storage temperatures
-	for _, storage := range data.StorageTemps {
-		for _, temp := range storage.Sensors {
-			sensorID := storage.Device + "_" + temp.Label
-			sensorData := &mqtt.SensorData{
-				ID:    sensorID,
-				Label: storage.Device + " " + temp.Label,
-				Value: temp.Temp,
-				Attributes: map[string]interface{}{
-					"temperature": temp.Temp,
-					"device":      storage.Device,
-					"sensor":      temp.Label,
-					"unit":        "°C",
-				},
-			}
-			publisher.PublishSensorState(sensorData)
-		}
-	}
-}
-
-// publishDiscoveryConfigs publishes discovery configurations through the local DiscoveryManager
-func (p *TemperaturePlugin) publishDiscoveryConfigs(data *TemperatureData, client *mqtt.Client, publisher *mqtt.Publisher, discovery *mqtt.DiscoveryManager) {
-	if data == nil || discovery == nil || client == nil {
-		return
-	}
-
-	configs := make([]*mqtt.SensorConfig, 0)
-
-	// Device info for grouping
-	deviceInfo := &mqtt.DeviceInfo{
-		Identifiers:  []string{"podmanview"},
-		Name:         "PodmanView",
-		Model:        "Temperature Monitor",
-		Manufacturer: "PodmanView",
-	}
-
-	// CPU/SoC sensors
-	for _, temp := range data.Temperatures {
-		sensorID := sanitizeSensorID(temp.Label)
-		cfg := &mqtt.SensorConfig{
-			SensorID:          sensorID,
-			Name:              temp.Label + " Temperature",
-			Unit:              "°C",
-			StateTopic:        "sensor/" + sensorID + "/state",
-			AttributesTopic:   "sensor/" + sensorID + "/attributes",
-			DeviceClass:       "temperature",
-			StateClass:        "measurement",
-			AvailabilityTopic: "sensor/temperature/availability",
-			DeviceInfo:        deviceInfo,
-		}
-		configs = append(configs, cfg)
-	}
-
-	// Storage sensors
-	for _, storage := range data.StorageTemps {
-		for _, temp := range storage.Sensors {
-			sensorID := sanitizeSensorID(storage.Device + "_" + temp.Label)
-			cfg := &mqtt.SensorConfig{
-				SensorID:          sensorID,
-				Name:              storage.Device + " " + temp.Label + " Temperature",
-				Unit:              "°C",
-				StateTopic:        "sensor/" + sensorID + "/state",
-				AttributesTopic:   "sensor/" + sensorID + "/attributes",
-				DeviceClass:       "temperature",
-				StateClass:        "measurement",
-				AvailabilityTopic: "sensor/temperature/availability",
-				DeviceInfo:        deviceInfo,
-			}
-			configs = append(configs, cfg)
-		}
-	}
-
-	discovery.PublishMultipleDiscoveryConfigs(configs)
-}
-
-// sanitizeSensorID creates a safe ID for MQTT topics
-func sanitizeSensorID(name string) string {
-	result := strings.ToLower(name)
-	result = strings.ReplaceAll(result, " ", "_")
-	result = strings.ReplaceAll(result, "/", "_")
-	result = strings.ReplaceAll(result, ".", "_")
 	return result
 }

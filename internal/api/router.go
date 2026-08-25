@@ -234,8 +234,9 @@ func (s *Server) registerPluginRoutes(r chi.Router) {
 
 			if route.RequireAuth && !s.config.NoAuth() {
 				authHandler := handler
+				apiToken := s.config.APIToken()
 				handler = func(w http.ResponseWriter, req *http.Request) {
-					s.authMw.RequireAuth(http.HandlerFunc(authHandler)).ServeHTTP(w, req)
+					s.authMw.RequireAuthOrToken(apiToken, http.HandlerFunc(authHandler)).ServeHTTP(w, req)
 				}
 			}
 

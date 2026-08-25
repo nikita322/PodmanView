@@ -19,6 +19,7 @@ const (
 	EnvJWTSecret     = "PODMANVIEW_JWT_SECRET"
 	EnvJWTExpiration = "PODMANVIEW_JWT_EXPIRATION"
 	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
+	EnvAPIToken      = "PODMANVIEW_API_TOKEN"
 	EnvSocket        = "PODMANVIEW_SOCKET"
 	EnvLogDir        = "PODMANVIEW_LOG_DIR"
 	EnvLogMaxSize    = "PODMANVIEW_LOG_MAX_SIZE"
@@ -48,6 +49,7 @@ type Config struct {
 
 	// Security settings
 	jwtSecret     string
+	apiToken      string
 	jwtExpiration time.Duration
 	noAuth        bool
 
@@ -89,6 +91,16 @@ func Load(filePath string) (*Config, error) {
 		cfg.dirty = true
 	}
 
+	// Generate API token if empty (same logic as JWT secret)
+	if cfg.apiToken == "" {
+		token, err := generateSecureSecret(32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate API token: %w", err)
+		}
+		cfg.apiToken = token
+		cfg.dirty = true
+	}
+
 	// Validate configuration
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
@@ -108,6 +120,7 @@ func Load(filePath string) (*Config, error) {
 func (c *Config) setDefaults() {
 	c.addr = DefaultAddr
 	c.jwtSecret = ""
+	c.apiToken = ""
 	c.jwtExpiration = DefaultJWTExpiration
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
@@ -141,6 +154,10 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvJWTSecret]; ok && v != "" {
 		c.jwtSecret = v
+	}
+
+	if v, ok := values[EnvAPIToken]; ok && v != "" {
+		c.apiToken = v
 	}
 
 	if v, ok := values[EnvJWTExpiration]; ok && v != "" {
@@ -239,6 +256,7 @@ func (c *Config) toMap() map[string]string {
 	return map[string]string{
 		EnvAddr:          c.addr,
 		EnvJWTSecret:     c.jwtSecret,
+		EnvAPIToken:      c.apiToken,
 		EnvJWTExpiration: strconv.Itoa(int(c.jwtExpiration.Seconds())),
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
@@ -262,6 +280,13 @@ func (c *Config) JWTSecret() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.jwtSecret
+}
+
+// APIToken returns the static API token for machine-to-machine access.
+func (c *Config) APIToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.apiToken
 }
 
 // JWTExpiration returns the JWT token expiration duration.
@@ -338,9 +363,13 @@ func (c *Config) String() string {
 	if c.jwtSecret != "" {
 		secretDisplay = "[set]"
 	}
+	apiTokenDisplay := "[not set]"
+	if c.apiToken != "" {
+		apiTokenDisplay = "[set]"
+	}
 
 	return fmt.Sprintf(
-		"Config{Addr: %q, JWTSecret: %s, JWTExpiration: %v, NoAuth: %v, SocketPath: %q}",
-		c.addr, secretDisplay, c.jwtExpiration, c.noAuth, c.socketPath,
+		"Config{Addr: %q, JWTSecret: %s, APIToken: %s, JWTExpiration: %v, NoAuth: %v, SocketPath: %q}",
+		c.addr, secretDisplay, apiTokenDisplay, c.jwtExpiration, c.noAuth, c.socketPath,
 	)
 }
