@@ -37,6 +37,26 @@ func (p *PicoderPlugin) Init(ctx context.Context, deps *plugins.PluginDependenci
 	p.sessions.SetStorage(deps.Storage)
 	p.sessions.SetPodmanClient(deps.PodmanClient)
 
+	// Resolve the pi executable once at startup so session creation can
+	// fail fast with a clear, actionable error message.
+	explicit := ""
+	if deps.Config != nil {
+		explicit = deps.Config.PiBinary()
+	}
+	binary, err := ResolvePiBinary(explicit)
+	if err != nil {
+		p.sessions.SetPiBinary("", "", err.Error())
+		p.Logger().Printf("[%s] Warning: %v", p.Name(), err)
+	} else {
+		version := detectPiVersion(binary)
+		p.sessions.SetPiBinary(binary, version, "")
+		if version != "" {
+			p.Logger().Printf("[%s] Using pi %s at %s", p.Name(), version, binary)
+		} else {
+			p.Logger().Printf("[%s] Using pi at %s (version unknown)", p.Name(), binary)
+		}
+	}
+
 	if err := p.sessions.LoadAll(); err != nil {
 		p.Logger().Printf("[%s] Warning: failed to load sessions: %v", p.Name(), err)
 	}
@@ -66,6 +86,7 @@ func (p *PicoderPlugin) Routes() []plugins.Route {
 	h := NewHandlers(p.sessions, p.Logger())
 	return []plugins.Route{
 		// Containers & sessions info
+		{Method: "GET", Path: "/api/plugins/picoder/status", Handler: h.Status, RequireAuth: true},
 		{Method: "GET", Path: "/api/plugins/picoder/containers", Handler: h.ListContainers, RequireAuth: true},
 		{Method: "GET", Path: "/api/plugins/picoder/containers/{id}/sessions", Handler: h.ContainerSessions, RequireAuth: true},
 		{Method: "GET", Path: "/api/plugins/picoder/sessions", Handler: h.ListSessions, RequireAuth: true},

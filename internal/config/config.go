@@ -21,6 +21,7 @@ const (
 	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
 	EnvAPIToken      = "PODMANVIEW_API_TOKEN"
 	EnvSocket        = "PODMANVIEW_SOCKET"
+	EnvPiBinary      = "PODMANVIEW_PI_BIN"
 	EnvLogDir        = "PODMANVIEW_LOG_DIR"
 	EnvLogMaxSize    = "PODMANVIEW_LOG_MAX_SIZE"
 	EnvLogMaxBackups = "PODMANVIEW_LOG_MAX_BACKUPS"
@@ -55,6 +56,9 @@ type Config struct {
 
 	// Podman settings
 	socketPath string
+
+	// Pi coding agent settings
+	piBinary string
 
 	// Logging settings
 	logDir        string
@@ -124,6 +128,7 @@ func (c *Config) setDefaults() {
 	c.jwtExpiration = DefaultJWTExpiration
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
+	c.piBinary = ""
 	c.logDir = DefaultLogDir
 	c.logMaxSize = DefaultLogMaxSize
 	c.logMaxBackups = DefaultLogMaxBackups
@@ -172,6 +177,10 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvSocket]; ok {
 		c.socketPath = v
+	}
+
+	if v, ok := values[EnvPiBinary]; ok {
+		c.piBinary = v
 	}
 
 	if v, ok := values[EnvLogDir]; ok && v != "" {
@@ -260,6 +269,7 @@ func (c *Config) toMap() map[string]string {
 		EnvJWTExpiration: strconv.Itoa(int(c.jwtExpiration.Seconds())),
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
+		EnvPiBinary:      c.piBinary,
 		EnvLogDir:        c.logDir,
 		EnvLogMaxSize:    strconv.Itoa(c.logMaxSize),
 		EnvLogMaxBackups: strconv.Itoa(c.logMaxBackups),
@@ -308,6 +318,13 @@ func (c *Config) SocketPath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.socketPath
+}
+
+// PiBinary returns the configured pi executable path (empty means auto-detect).
+func (c *Config) PiBinary() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.piBinary
 }
 
 // LogDir returns the log directory path.
@@ -369,7 +386,7 @@ func (c *Config) String() string {
 	}
 
 	return fmt.Sprintf(
-		"Config{Addr: %q, JWTSecret: %s, APIToken: %s, JWTExpiration: %v, NoAuth: %v, SocketPath: %q}",
-		c.addr, secretDisplay, apiTokenDisplay, c.jwtExpiration, c.noAuth, c.socketPath,
+		"Config{Addr: %q, JWTSecret: %s, APIToken: %s, JWTExpiration: %v, NoAuth: %v, SocketPath: %q, PiBinary: %q}",
+		c.addr, secretDisplay, apiTokenDisplay, c.jwtExpiration, c.noAuth, c.socketPath, c.piBinary,
 	)
 }

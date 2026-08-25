@@ -6,6 +6,9 @@
 
     .picoder-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
     .picoder-header h2 { margin: 0; font-size: 1.1rem; }
+    .pi-status { font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pi-status.ok { background: var(--success-bg); color: var(--success); }
+    .pi-status.error { background: var(--danger-bg); color: var(--danger); cursor: help; }
 
     .picoder-accordion { flex: 1; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
     .picoder-accordion-item { margin-bottom: 6px; border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; }
@@ -102,6 +105,7 @@
     <div class="picoder-sidebar">
       <div class="picoder-header">
         <h2>Containers &amp; Sessions</h2>
+        <span id="picoder-pi-status" class="pi-status">pi …</span>
       </div>
       <div class="picoder-accordion" id="picoder-accordion">
         <div class="picoder-empty">
@@ -152,12 +156,35 @@
         reconnectTimer: null,
 
         init() {
+          this.loadStatus();
           this.loadContainers();
           this.loadSessions();
           document.getElementById('picoder-refresh').addEventListener('click', () => {
+            this.loadStatus();
             this.loadContainers();
             this.loadSessions();
           });
+        },
+
+        async loadStatus() {
+          const el = document.getElementById('picoder-pi-status');
+          if (!el) return;
+          try {
+            const s = await this.api('GET', '/api/plugins/picoder/status');
+            if (s.available) {
+              el.className = 'pi-status ok';
+              el.textContent = 'pi ' + (s.version || s.binary || '');
+              el.title = s.binary || '';
+            } else {
+              el.className = 'pi-status error';
+              el.textContent = 'pi not found';
+              el.title = s.error || 'Install @earendil-works/pi-coding-agent or set PODMANVIEW_PI_BIN';
+            }
+          } catch (e) {
+            el.className = 'pi-status error';
+            el.textContent = 'status unavailable';
+            el.title = String(e && e.message || e);
+          }
         },
 
         async api(method, path, body) {
@@ -167,7 +194,16 @@
           };
           if (body) opts.body = JSON.stringify(body);
           const res = await fetch(path, opts);
-          if (!res.ok) throw new Error(await res.text());
+          if (!res.ok) {
+            const text = await res.text();
+            let msg = text;
+            try {
+              const parsed = JSON.parse(text);
+              if (parsed && parsed.error) msg = parsed.error;
+              else if (parsed && parsed.message) msg = parsed.message;
+            } catch (e) { /* not JSON, keep raw text */ }
+            throw new Error(msg);
+          }
           return res.json();
         },
 

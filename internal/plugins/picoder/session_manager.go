@@ -96,6 +96,10 @@ type SessionManager struct {
 	logger   *log.Logger
 	storage  storage.Storage
 	podman   *podman.Client
+
+	piBinary  string // resolved pi executable path
+	piVersion string // detected pi version (may be empty)
+	piError   string // error from binary resolution (may be empty)
 }
 
 // NewSessionManager creates a new session manager
@@ -113,6 +117,24 @@ func (sm *SessionManager) SetStorage(s storage.Storage) { sm.storage = s }
 
 // SetPodmanClient sets the podman client
 func (sm *SessionManager) SetPodmanClient(c *podman.Client) { sm.podman = c }
+
+// SetPiBinary configures the resolved pi executable and detected version.
+// If err is non-nil, piBinary/piVersion may still be set when resolution
+// partially succeeded; piError records the resolution failure reason.
+func (sm *SessionManager) SetPiBinary(binary, version, errMsg string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.piBinary = binary
+	sm.piVersion = version
+	sm.piError = errMsg
+}
+
+// PiRuntimeInfo returns the resolved pi executable info.
+func (sm *SessionManager) PiRuntimeInfo() (binary, version, errMsg string) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.piBinary, sm.piVersion, sm.piError
+}
 
 // Count returns number of tracked sessions
 func (sm *SessionManager) Count() int {
@@ -161,12 +183,22 @@ func (sm *SessionManager) Create(meta *SessionMetadata) (*PiProcess, error) {
 		return nil, fmt.Errorf("session %s already exists", meta.ID)
 	}
 
-	args := []string{"--mode", "rpc", "--name", meta.Name}
-	if meta.CWD != "" {
-		args = append(args, "--cwd", meta.CWD)
+	binary, _, piErr := sm.piBinary, sm.piVersion, sm.piError
+	if binary == "" {
+		if piErr != "" {
+			return nil, fmt.Errorf("pi is not available: %s", piErr)
+		}
+		return nil, fmt.Errorf("pi executable is not configured")
 	}
 
-	cmd := exec.Command(piCmd, args...)
+	args := []string{"--mode", "rpc", "--name", meta.Name}
+
+	cmd := exec.Command(binary, args...)
+	if meta.CWD != "" {
+		// Set the working directory for the pi process itself.
+		// Note: pi has no --cwd flag; use cmd.Dir instead.
+		cmd.Dir = meta.CWD
+	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
 	stdin, err := cmd.StdinPipe()
@@ -180,7 +212,7 @@ func (sm *SessionManager) Create(meta *SessionMetadata) (*PiProcess, error) {
 	cmd.Stderr = cmd.Stdout // merge stderr into stdout for logging
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start pi: %w", err)
+		return nil, fmt.Errorf("start pi (%s): %w", binary, err)
 	}
 
 	pp := &PiProcess{

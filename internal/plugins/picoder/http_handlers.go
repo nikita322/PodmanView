@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -42,6 +43,33 @@ type ContainerInfo struct {
 	Status       string   `json:"status"`
 	Binds        []string `json:"binds"` // host paths from bind mounts
 	SessionCount int      `json:"session_count"`
+}
+
+// PiStatus describes the pi runtime detected by the plugin.
+type PiStatus struct {
+	Available    bool   `json:"available"`
+	Binary       string `json:"binary,omitempty"`
+	Version      string `json:"version,omitempty"`
+	Error        string `json:"error,omitempty"`
+	SessionCount int    `json:"session_count"`
+}
+
+// Status returns the resolved pi executable information and session count.
+func (h *Handlers) Status(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		plugins.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		return
+	}
+
+	binary, version, errMsg := h.sessions.PiRuntimeInfo()
+	plugins.WriteJSON(w, http.StatusOK, PiStatus{
+		Available:    binary != "",
+		Binary:       binary,
+		Version:      version,
+		Error:        errMsg,
+		SessionCount: h.sessions.Count(),
+	})
 }
 
 // ListContainers returns all containers with their bind mounts and session counts
@@ -173,7 +201,11 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 	pp, err := h.sessions.Create(meta)
 	if err != nil {
 		h.logf("Failed to create session: %v", err)
-		plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not available") || strings.Contains(err.Error(), "not configured") {
+			status = http.StatusServiceUnavailable
+		}
+		plugins.WriteJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
