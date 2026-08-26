@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -59,11 +58,12 @@ func (p *MCPServerPlugin) Init(ctx context.Context, deps *plugins.PluginDependen
 		p.authMw = auth.NewMiddleware(p.jwtManager)
 	}
 
-	// Sessions are kept in memory and closed after 30 minutes of inactivity.
+	// Stateless mode: each request is served in a temporary session, so no
+	// Mcp-Session-Id header or initialize/initialized handshake is required.
 	p.mcpHandler = mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return p.server
 	}, &mcp.StreamableHTTPOptions{
-		SessionTimeout: 30 * time.Minute,
+		Stateless: true,
 	})
 
 	if p.Logger() != nil {
@@ -89,14 +89,13 @@ func (p *MCPServerPlugin) Stop(ctx context.Context) error {
 }
 
 // Routes returns the MCP endpoint routes.
-// GET/POST/DELETE are required by the MCP streamable HTTP transport.
+// In stateless mode only POST is supported: GET and DELETE (SSE stream and
+// session termination) are not applicable.
 func (p *MCPServerPlugin) Routes() []plugins.Route {
 	handler := http.HandlerFunc(p.handleMCP)
 
 	return []plugins.Route{
-		{Method: "GET", Path: "/mcp", Handler: handler},
 		{Method: "POST", Path: "/mcp", Handler: handler},
-		{Method: "DELETE", Path: "/mcp", Handler: handler},
 	}
 }
 

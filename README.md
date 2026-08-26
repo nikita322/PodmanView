@@ -197,7 +197,8 @@ The MCP plugin exposes system management tools to AI clients (Claude Desktop, Cu
 ### Connection
 
 - **Endpoint:** `http://<server-ip>/mcp` (same host/port as the web UI)
-- **Transport:** Streamable HTTP
+- **Transport:** Streamable HTTP (stateless)
+- **Mode:** stateless — no `Mcp-Session-Id` header and no `initialize`/`initialized` handshake; every `POST` request is self-contained and returns a JSON-RPC response directly
 - **Auth (admin only):** send the API token as a bearer token
   - Header: `Authorization: Bearer <PODMANVIEW_API_TOKEN>`
   - Or query parameter: `?api_token=<PODMANVIEW_API_TOKEN>`
