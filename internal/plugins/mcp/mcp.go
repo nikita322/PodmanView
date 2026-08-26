@@ -160,7 +160,9 @@ func (p *MCPServerPlugin) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 // handleSSE serves the SSE transport endpoint. Unlike /mcp it has no
 // token/bearer auth (Home Assistant cannot send one), so access is limited to
-// the local network only.
+// the local network only. Bare POSTs (no sessionid) are served by the
+// stateless streamable-HTTP handler, so clients can use either transport on
+// the same /sse URL.
 func (p *MCPServerPlugin) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if p.sseHandler == nil {
 		http.Error(w, "Plugin not initialized", http.StatusServiceUnavailable)
@@ -172,13 +174,13 @@ func (p *MCPServerPlugin) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Streamable-HTTP clients probe an SSE endpoint with a bare POST (no
-	// sessionid). Per the MCP transport backwards-compatibility spec, answer
-	// 405 so such clients (e.g. Home Assistant) fall back to SSE on the same
-	// URL instead of failing.
+	// Streamable-HTTP clients send a bare POST (no sessionid). Serve them with
+	// the stateless streamable handler directly, so clients such as Home
+	// Assistant do not need the (fragile) 405 -> SSE fallback. SSE clients
+	// GET the stream and POST messages to /sse?sessionid=..., which is handled
+	// by the SSE handler below.
 	if r.Method == http.MethodPost && r.URL.Query().Get("sessionid") == "" {
-		w.Header().Set("Allow", "GET, POST")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		p.mcpHandler.ServeHTTP(w, r)
 		return
 	}
 
