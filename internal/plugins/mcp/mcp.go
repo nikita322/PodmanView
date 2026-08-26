@@ -1,5 +1,5 @@
 // Package mcp provides an MCP (Model Context Protocol) server plugin that
-// exposes system management tools to AI clients over Streamable HTTP.
+// exposes system management tools to AI clients over Streamable HTTP and SSE.
 package mcp
 
 import (
@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,6 +26,7 @@ type MCPServerPlugin struct {
 
 	server     *mcp.Server
 	mcpHandler http.Handler
+	sseHandler http.Handler
 	jwtManager *auth.JWTManager
 	authMw     *auth.Middleware
 }
@@ -66,8 +68,14 @@ func (p *MCPServerPlugin) Init(ctx context.Context, deps *plugins.PluginDependen
 		Stateless: true,
 	})
 
+	// SSE transport for clients that do not support streamable HTTP (e.g.
+	// Home Assistant). Exposed at /sse and restricted to the local network.
+	p.sseHandler = mcp.NewSSEHandler(func(_ *http.Request) *mcp.Server {
+		return p.server
+	}, nil)
+
 	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Plugin initialized (endpoint: /mcp)", p.Name())
+		p.Logger().Printf("[%s] Plugin initialized (endpoints: /mcp, /sse)", p.Name())
 	}
 	return nil
 }
@@ -94,12 +102,18 @@ func (p *MCPServerPlugin) Stop(ctx context.Context) error {
 // and responds with 405 Method Not Allowed to GET and DELETE, which also
 // prevents the SPA fallback from serving the web UI at /mcp.
 func (p *MCPServerPlugin) Routes() []plugins.Route {
-	handler := http.HandlerFunc(p.handleMCP)
+	mcpHandler := http.HandlerFunc(p.handleMCP)
+	sseHandler := http.HandlerFunc(p.handleSSE)
 
 	return []plugins.Route{
-		{Method: "GET", Path: "/mcp", Handler: handler},
-		{Method: "POST", Path: "/mcp", Handler: handler},
-		{Method: "DELETE", Path: "/mcp", Handler: handler},
+		{Method: "GET", Path: "/mcp", Handler: mcpHandler},
+		{Method: "POST", Path: "/mcp", Handler: mcpHandler},
+		{Method: "DELETE", Path: "/mcp", Handler: mcpHandler},
+
+		// SSE transport: a hanging GET opens the event stream and POSTs to
+		// /sse?sessionid=... carry client messages. LAN-only, no token auth.
+		{Method: "GET", Path: "/sse", Handler: sseHandler},
+		{Method: "POST", Path: "/sse", Handler: sseHandler},
 	}
 }
 
@@ -142,6 +156,38 @@ func (p *MCPServerPlugin) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.authMw.RequireAdminOrToken(deps.Config.APIToken(), p.mcpHandler).ServeHTTP(w, r)
+}
+
+// handleSSE serves the SSE transport endpoint. Unlike /mcp it has no
+// token/bearer auth (Home Assistant cannot send one), so access is limited to
+// the local network only.
+func (p *MCPServerPlugin) handleSSE(w http.ResponseWriter, r *http.Request) {
+	if p.sseHandler == nil {
+		http.Error(w, "Plugin not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	if !isLANRequest(r) {
+		http.Error(w, "Forbidden: /sse is only reachable from the local network", http.StatusForbidden)
+		return
+	}
+
+	p.sseHandler.ServeHTTP(w, r)
+}
+
+// isLANRequest reports whether the request originates from a loopback or
+// private (RFC 1918 / ULA) address. It inspects the direct peer address
+// rather than proxy headers, so it cannot be spoofed by an external client.
+func isLANRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 // logEvent records an audit event for a mutating MCP operation.
