@@ -172,6 +172,16 @@ func (p *MCPServerPlugin) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Streamable-HTTP clients probe an SSE endpoint with a bare POST (no
+	// sessionid). Per the MCP transport backwards-compatibility spec, answer
+	// 405 so such clients (e.g. Home Assistant) fall back to SSE on the same
+	// URL instead of failing.
+	if r.Method == http.MethodPost && r.URL.Query().Get("sessionid") == "" {
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	p.sseHandler.ServeHTTP(w, r)
 }
 
