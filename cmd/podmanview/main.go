@@ -18,7 +18,6 @@ import (
 	"podmanview/internal/logger"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/led"
-	"podmanview/internal/plugins/picoder"
 	"podmanview/internal/plugins/reactor"
 	"podmanview/internal/plugins/temperature"
 	"podmanview/internal/podman"
@@ -131,18 +130,6 @@ func main() {
 		}
 	}
 
-	// Check if picoder plugin exists in storage
-	_, err = pluginStorage.GetPluginConfig("picoder")
-	if err == storage.ErrPluginNotFound {
-		appLogger.Printf("Initializing default configuration for picoder plugin")
-		if err := pluginStorage.SetPluginConfig("picoder", &storage.PluginConfig{
-			Enabled: true,
-			Name:    "Pi Coding Agent",
-		}); err != nil {
-			appLogger.Printf("Warning: Failed to set default picoder plugin config: %v", err)
-		}
-	}
-
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -158,10 +145,6 @@ func main() {
 
 	if err := pluginRegistry.Register(reactor.New()); err != nil {
 		appLogger.Fatalf("Failed to register reactor plugin: %v", err)
-	}
-
-	if err := pluginRegistry.Register(picoder.New()); err != nil {
-		appLogger.Fatalf("Failed to register picoder plugin: %v", err)
 	}
 
 	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())
