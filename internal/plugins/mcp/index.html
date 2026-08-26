@@ -1,0 +1,67 @@
+<!-- MCP Server Plugin Interface -->
+<section id="page-plugin-mcp" class="content-page hidden" data-plugin-version="1.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="mcp-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">MCP Server</h1>
+        </div>
+    </div>
+
+    <div class="info-section">
+        <h2>Connection</h2>
+        <div class="info-grid">
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Endpoint URL:</span>
+                <span class="info-value"><code>/mcp</code></span>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Transport:</span>
+                <span class="info-value">Streamable HTTP (MCP)</span>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Authentication:</span>
+                <span class="info-value">Admin only — use <code>Authorization: Bearer &lt;PODMANVIEW_API_TOKEN&gt;</code>, <code>?api_token=...</code>, or an admin session cookie.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Available Tools</h2>
+        <div class="info-grid">
+            <div class="info-item"><span class="info-label">system.info</span><span class="info-value">Host OS, kernel, arch, Podman version, uptime</span></div>
+            <div class="info-item"><span class="info-label">system.resources</span><span class="info-value">CPU, memory, disks, temperatures</span></div>
+            <div class="info-item"><span class="info-label">system.processes</span><span class="info-value">List running processes</span></div>
+            <div class="info-item"><span class="info-label">system.kill_process</span><span class="info-value">Signal a process by PID</span></div>
+            <div class="info-item"><span class="info-label">systemd.list_units</span><span class="info-value">List systemd units</span></div>
+            <div class="info-item"><span class="info-label">systemd.manage_unit</span><span class="info-value">Start/stop/restart/enable/disable units</span></div>
+            <div class="info-item"><span class="info-label">network.interfaces</span><span class="info-value">Interfaces, IPs, listening sockets</span></div>
+            <div class="info-item"><span class="info-label">packages.list</span><span class="info-value">Installed packages (apt/dnf)</span></div>
+            <div class="info-item"><span class="info-label">packages.install</span><span class="info-value">Install packages</span></div>
+            <div class="info-item"><span class="info-label">packages.update</span><span class="info-value">Upgrade all packages</span></div>
+            <div class="info-item"><span class="info-label">command.run</span><span class="info-value">Run a shell command</span></div>
+            <div class="info-item"><span class="info-label">power.reboot</span><span class="info-value">Reboot host</span></div>
+            <div class="info-item"><span class="info-label">power.shutdown</span><span class="info-value">Shut down host</span></div>
+            <div class="info-item"><span class="info-label">podman.list</span><span class="info-value">Containers and images</span></div>
+            <div class="info-item"><span class="info-label">podman.manage</span><span class="info-value">Start/stop/restart/remove containers</span></div>
+            <div class="info-item"><span class="info-label">podman.logs</span><span class="info-value">Container logs</span></div>
+            <div class="info-item"><span class="info-label">logs.journalctl</span><span class="info-value">Systemd journal logs</span></div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const backBtn = document.getElementById('mcp-back-btn');
+            if (backBtn) {
+                backBtn.addEventListener('click', function () {
+                    if (typeof App !== 'undefined' && App.navigate) {
+                        App.navigate('plugins');
+                    }
+                });
+            }
+        })();
+    </script>
+</section>

@@ -18,6 +18,7 @@ import (
 	"podmanview/internal/logger"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/led"
+	"podmanview/internal/plugins/mcp"
 	"podmanview/internal/plugins/reactor"
 	"podmanview/internal/plugins/temperature"
 	"podmanview/internal/podman"
@@ -130,6 +131,18 @@ func main() {
 		}
 	}
 
+	// Check if mcp plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("mcp")
+	if err == storage.ErrPluginNotFound {
+		appLogger.Printf("Initializing default configuration for mcp plugin")
+		if err := pluginStorage.SetPluginConfig("mcp", &storage.PluginConfig{
+			Enabled: true,
+			Name:    "MCP Server",
+		}); err != nil {
+			appLogger.Printf("Warning: Failed to set default mcp plugin config: %v", err)
+		}
+	}
+
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -145,6 +158,10 @@ func main() {
 
 	if err := pluginRegistry.Register(reactor.New()); err != nil {
 		appLogger.Fatalf("Failed to register reactor plugin: %v", err)
+	}
+
+	if err := pluginRegistry.Register(mcp.New()); err != nil {
+		appLogger.Fatalf("Failed to register mcp plugin: %v", err)
 	}
 
 	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())

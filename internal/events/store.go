@@ -43,6 +43,12 @@ const (
 	EventFileRename   EventType = "file_rename"
 	EventFileRead     EventType = "file_read"
 	EventFileWrite    EventType = "file_write"
+
+	// MCP events
+	EventMCPCommand EventType = "mcp_command"
+	EventMCPProcess EventType = "mcp_process"
+	EventMCPSystemd EventType = "mcp_systemd"
+	EventMCPPackage EventType = "mcp_package"
 )
 
 // Event represents a security/audit event

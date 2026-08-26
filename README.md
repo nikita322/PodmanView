@@ -16,6 +16,7 @@ Minimalist web interface designed specifically for monitoring and managing Podma
 
 - Linux with PAM support
 - Podman 4.0+
+- Go 1.25+ (to build from source)
 - Root access (for PAM authentication and port 80)
 
 ### Installation
@@ -38,7 +39,7 @@ sudo ./podmanview
 
 #### Option 2: Build from Source
 
-Requires Go 1.21+
+Requires Go 1.25+
 
 ```bash
 # Clone
@@ -170,6 +171,12 @@ See `.env.example` for full documentation of all options.
 - WebSocket-based with xterm.js
 - Admin-only access
 
+### MCP Server (AI Agents)
+- Model Context Protocol server over Streamable HTTP
+- Admin-only endpoint at `/mcp`
+- Tools for system, systemd, network, packages, Podman, commands, power and logs
+- Enable/disable from the Plugins page
+
 ### PWA Support
 - Installable as app on mobile and desktop
 - Standalone mode (no browser UI)
@@ -182,6 +189,43 @@ See `.env.example` for full documentation of all options.
   - **Admin** (wheel/sudo group): Full access
   - **User**: Read-only access
 - 24-hour session lifetime
+
+## MCP Server (AI Agents)
+
+The MCP plugin exposes system management tools to AI clients (Claude Desktop, Cursor, pi, etc.) over the MCP Streamable HTTP transport.
+
+### Connection
+
+- **Endpoint:** `http://<server-ip>/mcp` (same host/port as the web UI)
+- **Transport:** Streamable HTTP
+- **Auth (admin only):** send the API token as a bearer token
+  - Header: `Authorization: Bearer <PODMANVIEW_API_TOKEN>`
+  - Or query parameter: `?api_token=<PODMANVIEW_API_TOKEN>`
+  - Or use an admin session cookie
+
+The plugin is enabled by default and can be toggled from the web UI **Plugins** page (or via `POST /api/plugins/mcp/toggle`).
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `system.info` | OS, kernel, arch, hostname, Podman version, uptime |
+| `system.resources` | CPU, memory, disks, temperatures |
+| `system.processes` | List processes |
+| `system.kill_process` | Signal a process by PID |
+| `systemd.list_units` | List systemd units |
+| `systemd.manage_unit` | start/stop/restart/reload/enable/disable/status |
+| `network.interfaces` | Interfaces, IPs, listening sockets |
+| `packages.list` | Installed packages (apt/dnf) |
+| `packages.install` | Install packages |
+| `packages.update` | Upgrade all packages |
+| `command.run` | Run a shell command |
+| `power.reboot` | Reboot the host |
+| `power.shutdown` | Shut down the host |
+| `podman.list` | Containers and images |
+| `podman.manage` | start/stop/restart/remove containers |
+| `podman.logs` | Container logs |
+| `logs.journalctl` | Systemd journal logs |
 
 ## API Endpoints
 

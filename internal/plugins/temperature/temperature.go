@@ -4,16 +4,11 @@ package temperature
 import (
 	"context"
 	_ "embed"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"podmanview/internal/plugins"
+	"podmanview/internal/sensors"
 	"podmanview/internal/storage"
 )
 
@@ -32,17 +27,10 @@ type TemperaturePlugin struct {
 	bgMutex          sync.Mutex
 }
 
-// Temperature represents a temperature sensor reading
-type Temperature struct {
-	Label string  `json:"label"`
-	Temp  float64 `json:"temp"`
-}
-
-// StorageTemp represents storage device temperatures grouped by device
-type StorageTemp struct {
-	Device  string        `json:"device"`  // Device name (e.g., nvme0n1)
-	Sensors []Temperature `json:"sensors"` // Temperature sensors for this device
-}
+// Temperature and StorageTemp are re-exported from the shared sensors package
+// so consumers (API, MCP) and this plugin use a single source of truth.
+type Temperature = sensors.Temperature
+type StorageTemp = sensors.StorageTemp
 
 // TemperatureData represents all temperature data
 type TemperatureData struct {
@@ -202,8 +190,8 @@ func (p *TemperaturePlugin) RestartBackgroundTasks() error {
 func (p *TemperaturePlugin) updateTemperatureData() {
 	// Collect fresh temperature data
 	newData := &TemperatureData{
-		Temperatures: getCPUTemperatures(),
-		StorageTemps: getNVMeTemperaturesGrouped(),
+		Temperatures: sensors.GetCPUTemperatures(),
+		StorageTemps: sensors.GetNVMeTemperaturesGrouped(),
 	}
 
 	// Update cache with lock
@@ -259,223 +247,14 @@ func (p *TemperaturePlugin) loadSettings(st storage.Storage) {
 	}
 }
 
-// GetFriendlyName converts system sensor names to human-readable names
-// Supports dynamic patterns like clusterN_thermal -> CPU Cluster N+1 (user-friendly numbering)
+// GetFriendlyName converts system sensor names to human-readable names.
+// Delegates to the shared sensors package.
 func GetFriendlyName(deviceName string) string {
-	// Pattern: clusterN_thermal -> CPU Cluster N+1 (numbering starts from 1)
-	if strings.HasPrefix(deviceName, "cluster") && strings.HasSuffix(deviceName, "_thermal") {
-		// Extract cluster number
-		clusterNum := strings.TrimPrefix(deviceName, "cluster")
-		clusterNum = strings.TrimSuffix(clusterNum, "_thermal")
-		// Verify it's a number and convert
-		if len(clusterNum) > 0 && isDigit(clusterNum[0]) {
-			if num, err := strconv.Atoi(clusterNum); err == nil {
-				return "CPU Cluster " + strconv.Itoa(num+1)
-			}
-		}
-	}
-
-	// Pattern: coreN -> CPU Core N+1 (numbering starts from 1)
-	if strings.HasPrefix(deviceName, "core") {
-		coreNum := strings.TrimPrefix(deviceName, "core")
-		// Check if the next character is a digit
-		if len(coreNum) > 0 && isDigit(coreNum[0]) {
-			if num, err := strconv.Atoi(coreNum); err == nil {
-				return "CPU Core " + strconv.Itoa(num+1)
-			}
-		}
-	}
-
-	// Add more patterns as needed
-	// For example: nvme, ssd, etc.
-
-	// Return original name if no pattern matches
-	return deviceName
+	return sensors.GetFriendlyName(deviceName)
 }
 
-// GetFriendlyStorageName converts storage device names to human-readable names
-// Supports patterns like nvme0n1 -> NVMe SSD 1, sda -> SATA Drive A
+// GetFriendlyStorageName converts storage device names to human-readable names.
+// Delegates to the shared sensors package.
 func GetFriendlyStorageName(deviceName string) string {
-	// Pattern: nvmeXnY -> NVMe SSD X+1 (user-friendly numbering starting from 1)
-	if strings.HasPrefix(deviceName, "nvme") {
-		// Extract number after "nvme"
-		rest := strings.TrimPrefix(deviceName, "nvme")
-		// Find the digit part before 'n'
-		if len(rest) > 0 {
-			// nvme0n1 -> rest = "0n1"
-			nPos := strings.Index(rest, "n")
-			if nPos > 0 {
-				numStr := rest[:nPos]
-				if num, err := strconv.Atoi(numStr); err == nil {
-					return "NVMe SSD " + strconv.Itoa(num+1)
-				}
-			}
-		}
-	}
-
-	// Pattern: sdX -> SATA Drive X (uppercase)
-	if strings.HasPrefix(deviceName, "sd") && len(deviceName) >= 3 {
-		letter := strings.ToUpper(string(deviceName[2]))
-		return "SATA Drive " + letter
-	}
-
-	// Pattern: hdX -> IDE Drive X (uppercase)
-	if strings.HasPrefix(deviceName, "hd") && len(deviceName) >= 3 {
-		letter := strings.ToUpper(string(deviceName[2]))
-		return "IDE Drive " + letter
-	}
-
-	// Pattern: mmcblkX -> SD Card X+1
-	if strings.HasPrefix(deviceName, "mmcblk") {
-		numStr := strings.TrimPrefix(deviceName, "mmcblk")
-		if num, err := strconv.Atoi(numStr); err == nil {
-			return "SD Card " + strconv.Itoa(num+1)
-		}
-	}
-
-	// Return original name if no pattern matches
-	return deviceName
-}
-
-// isDigit checks if a byte is a digit (0-9)
-func isDigit(b byte) bool {
-	return b >= '0' && b <= '9'
-}
-
-// getCPUTemperatures reads CPU/SoC temperatures from /sys/class/hwmon
-func getCPUTemperatures() []Temperature {
-	temps := []Temperature{}
-
-	// Scan hwmon devices
-	hwmonPath := "/sys/class/hwmon"
-	entries, err := os.ReadDir(hwmonPath)
-	if err != nil {
-		return temps
-	}
-
-	for _, entry := range entries {
-		devicePath := filepath.Join(hwmonPath, entry.Name())
-
-		// Get device name
-		nameBytes, err := os.ReadFile(filepath.Join(devicePath, "name"))
-		if err != nil {
-			continue
-		}
-		deviceName := strings.TrimSpace(string(nameBytes))
-
-		// Find temp inputs
-		files, err := os.ReadDir(devicePath)
-		if err != nil {
-			continue
-		}
-
-		for _, f := range files {
-			if !strings.HasPrefix(f.Name(), "temp") || !strings.HasSuffix(f.Name(), "_input") {
-				continue
-			}
-
-			// Read temperature (in millidegrees)
-			tempBytes, err := os.ReadFile(filepath.Join(devicePath, f.Name()))
-			if err != nil {
-				continue
-			}
-
-			tempMilliC, err := strconv.ParseInt(strings.TrimSpace(string(tempBytes)), 10, 64)
-			if err != nil {
-				continue
-			}
-
-			tempC := float64(tempMilliC) / 1000.0
-
-			// Try to get label first, then use friendly name or device name
-			labelFile := strings.Replace(f.Name(), "_input", "_label", 1)
-			labelBytes, err := os.ReadFile(filepath.Join(devicePath, labelFile))
-			var label string
-			if err == nil {
-				label = strings.TrimSpace(string(labelBytes))
-			} else {
-				// Use dynamic friendly name conversion
-				label = GetFriendlyName(deviceName)
-			}
-
-			temps = append(temps, Temperature{
-				Label: label,
-				Temp:  tempC,
-			})
-		}
-	}
-
-	return temps
-}
-
-// getNVMeTemperaturesGrouped reads temperatures from NVMe devices and groups by device
-func getNVMeTemperaturesGrouped() []StorageTemp {
-	result := []StorageTemp{}
-
-	// Scan /sys/block for nvme devices
-	entries, err := os.ReadDir("/sys/block")
-	if err != nil {
-		return result
-	}
-
-	for _, entry := range entries {
-		deviceName := entry.Name()
-		if !strings.HasPrefix(deviceName, "nvme") {
-			continue
-		}
-
-		// Skip partitions (nvme0n1p1, etc)
-		if strings.Contains(deviceName, "p") {
-			continue
-		}
-
-		devicePath := "/dev/" + deviceName
-		if _, err := os.Stat(devicePath); err != nil {
-			continue
-		}
-
-		cmd := exec.Command("nvme", "smart-log", devicePath)
-		output, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		outputStr := string(output)
-		deviceTemps := StorageTemp{
-			Device:  GetFriendlyStorageName(deviceName),
-			Sensors: []Temperature{},
-		}
-
-		// Parse main temperature: "temperature                             : 53 °C (326 K)"
-		reMain := regexp.MustCompile(`(?m)^temperature\s*:\s*(\d+)\s*°?C`)
-		if matches := reMain.FindStringSubmatch(outputStr); len(matches) >= 2 {
-			if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
-					Label: "Composite",
-					Temp:  tempC,
-				})
-			}
-		}
-
-		// Parse temperature sensors: "Temperature Sensor 1           : 76 °C (349 K)"
-		reSensors := regexp.MustCompile(`Temperature Sensor (\d+)\s*:\s*(\d+)\s*°C`)
-		sensorMatches := reSensors.FindAllStringSubmatch(outputStr, -1)
-		for _, match := range sensorMatches {
-			if len(match) >= 3 {
-				sensorNum := match[1]
-				if tempC, err := strconv.ParseFloat(match[2], 64); err == nil {
-					deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
-						Label: "Sensor " + sensorNum,
-						Temp:  tempC,
-					})
-				}
-			}
-		}
-
-		if len(deviceTemps.Sensors) > 0 {
-			result = append(result, deviceTemps)
-		}
-	}
-
-	return result
+	return sensors.GetFriendlyStorageName(deviceName)
 }

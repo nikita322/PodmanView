@@ -24,39 +24,50 @@ func NewMiddleware(jwtManager *JWTManager) *Middleware {
 	return &Middleware{jwtManager: jwtManager}
 }
 
+// userFromCookie validates the session cookie and returns the corresponding
+// user. Invalid cookies are cleared on the response. It returns nil if there
+// is no valid session.
+func (m *Middleware) userFromCookie(w http.ResponseWriter, r *http.Request) *User {
+	cookie, err := r.Cookie(CookieName)
+	if err != nil {
+		return nil
+	}
+
+	claims, err := m.jwtManager.ValidateToken(cookie.Value)
+	if err != nil {
+		// Clear invalid cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     CookieName,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+		})
+		return nil
+	}
+
+	return &User{
+		Username: claims.Username,
+		UID:      claims.UID,
+		Role:     claims.Role,
+	}
+}
+
+// setUser stores the user in the request context and invokes next.
+func setUser(r *http.Request, user *User, next http.Handler, w http.ResponseWriter) {
+	ctx := context.WithValue(r.Context(), UserContextKey, user)
+	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // RequireAuth middleware checks for valid JWT token
 func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try to get token from cookie
-		cookie, err := r.Cookie(CookieName)
-		if err != nil {
+		user := m.userFromCookie(w, r)
+		if user == nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-
-		// Validate token
-		claims, err := m.jwtManager.ValidateToken(cookie.Value)
-		if err != nil {
-			// Clear invalid cookie
-			http.SetCookie(w, &http.Cookie{
-				Name:     CookieName,
-				Value:    "",
-				Path:     "/",
-				MaxAge:   -1,
-				HttpOnly: true,
-			})
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Add user to context
-		user := &User{
-			Username: claims.Username,
-			UID:      claims.UID,
-			Role:     claims.Role,
-		}
-		ctx := context.WithValue(r.Context(), UserContextKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		setUser(r, user, next, w)
 	})
 }
 
@@ -65,37 +76,48 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 func (m *Middleware) RequireAuthOrToken(apiToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Try a valid session cookie first.
-		if cookie, err := r.Cookie(CookieName); err == nil {
-			if claims, err := m.jwtManager.ValidateToken(cookie.Value); err == nil {
-				user := &User{
-					Username: claims.Username,
-					UID:      claims.UID,
-					Role:     claims.Role,
-				}
-				ctx := context.WithValue(r.Context(), UserContextKey, user)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-
-			// Invalid cookie: clear it, but still allow a valid API token below.
-			http.SetCookie(w, &http.Cookie{
-				Name:     CookieName,
-				Value:    "",
-				Path:     "/",
-				MaxAge:   -1,
-				HttpOnly: true,
-			})
+		if user := m.userFromCookie(w, r); user != nil {
+			setUser(r, user, next, w)
+			return
 		}
 
 		// 2. Try the static API token.
 		if apiToken != "" && validAPIToken(r, apiToken) {
-			user := &User{
+			setUser(r, &User{
 				Username: "api_token",
 				UID:      "0",
 				Role:     RoleAdmin,
+			}, next, w)
+			return
+		}
+
+		// 3. Unauthorized.
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
+// RequireAdminOrToken authenticates the request using either the configured
+// static API token (always treated as admin) or a valid admin JWT session
+// cookie. Non-admin sessions are rejected with 403 Forbidden.
+func (m *Middleware) RequireAdminOrToken(apiToken string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. API token takes precedence and always means admin.
+		if apiToken != "" && validAPIToken(r, apiToken) {
+			setUser(r, &User{
+				Username: "api_token",
+				UID:      "0",
+				Role:     RoleAdmin,
+			}, next, w)
+			return
+		}
+
+		// 2. Try a valid admin session cookie.
+		if user := m.userFromCookie(w, r); user != nil {
+			if !user.IsAdmin() {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
 			}
-			ctx := context.WithValue(r.Context(), UserContextKey, user)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			setUser(r, user, next, w)
 			return
 		}
 
