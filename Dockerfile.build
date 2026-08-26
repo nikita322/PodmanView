@@ -11,7 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 
 # Download Go modules (cached layer)
+# third_party is copied before go mod download because go.mod replaces
+# github.com/modelcontextprotocol/go-sdk with a local (patched) copy.
 COPY go.mod go.sum ./
+COPY third_party/ third_party/
 RUN go mod download
 
 # Build
