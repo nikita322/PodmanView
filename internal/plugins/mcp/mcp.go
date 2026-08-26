@@ -89,13 +89,17 @@ func (p *MCPServerPlugin) Stop(ctx context.Context) error {
 }
 
 // Routes returns the MCP endpoint routes.
-// In stateless mode only POST is supported: GET and DELETE (SSE stream and
-// session termination) are not applicable.
+// All three methods are registered so the MCP streamable HTTP handler can
+// answer them per spec. In stateless mode the SDK handler accepts only POST
+// and responds with 405 Method Not Allowed to GET and DELETE, which also
+// prevents the SPA fallback from serving the web UI at /mcp.
 func (p *MCPServerPlugin) Routes() []plugins.Route {
 	handler := http.HandlerFunc(p.handleMCP)
 
 	return []plugins.Route{
+		{Method: "GET", Path: "/mcp", Handler: handler},
 		{Method: "POST", Path: "/mcp", Handler: handler},
+		{Method: "DELETE", Path: "/mcp", Handler: handler},
 	}
 }
 
