@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -33,6 +34,13 @@ type MCPServerPlugin struct {
 
 // New creates a new MCP server plugin instance.
 func New() *MCPServerPlugin {
+	// jsonschema-go emits "type": ["null", "array"] for Go slices by default.
+	// Older MCP clients (e.g. Home Assistant 2025.12 via probatio) cannot parse
+	// union types and fail with "unhashable type: 'list'". This knob makes it
+	// emit a plain "type": "array" instead. Must be set before registerTools
+	// infers the tool schemas.
+	os.Setenv("JSONSCHEMAGODEBUG", "typeschemasnull=1")
+
 	p := &MCPServerPlugin{
 		BasePlugin: plugins.NewBasePlugin(
 			"mcp",
