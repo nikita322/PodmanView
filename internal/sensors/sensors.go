@@ -162,13 +162,20 @@ func GetCPUTemperatures() []Temperature {
 	return temps
 }
 
-// GetNVMeTemperaturesGrouped reads temperatures from NVMe devices and groups by device.
-func GetNVMeTemperaturesGrouped() []StorageTemp {
-	result := []StorageTemp{}
+// NVMeDevice represents a physical (non-partition) NVMe block device.
+type NVMeDevice struct {
+	Name string // e.g. nvme0n1
+	Path string // e.g. /dev/nvme0n1
+}
+
+// ListNVMeDevices returns physical NVMe block devices found in /sys/block.
+// Partitions (e.g. nvme0n1p1) are skipped.
+func ListNVMeDevices() []NVMeDevice {
+	devices := []NVMeDevice{}
 
 	entries, err := os.ReadDir("/sys/block")
 	if err != nil {
-		return result
+		return devices
 	}
 
 	for _, entry := range entries {
@@ -182,12 +189,30 @@ func GetNVMeTemperaturesGrouped() []StorageTemp {
 			continue
 		}
 
-		devicePath := "/dev/" + deviceName
+		devicePath := filepath.Join("/dev", deviceName)
 		if _, err := os.Stat(devicePath); err != nil {
 			continue
 		}
 
-		cmd := exec.Command("nvme", "smart-log", devicePath)
+		devices = append(devices, NVMeDevice{Name: deviceName, Path: devicePath})
+	}
+
+	return devices
+}
+
+// IsNVMeCLIAvailable reports whether the nvme utility from the nvme-cli package
+// is present in PATH. NVMe temperatures cannot be read without it.
+func IsNVMeCLIAvailable() bool {
+	_, err := exec.LookPath("nvme")
+	return err == nil
+}
+
+// GetNVMeTemperaturesGrouped reads temperatures from NVMe devices and groups by device.
+func GetNVMeTemperaturesGrouped() []StorageTemp {
+	result := []StorageTemp{}
+
+	for _, dev := range ListNVMeDevices() {
+		cmd := exec.Command("nvme", "smart-log", dev.Path)
 		output, err := cmd.Output()
 		if err != nil {
 			continue
@@ -195,7 +220,7 @@ func GetNVMeTemperaturesGrouped() []StorageTemp {
 
 		outputStr := string(output)
 		deviceTemps := StorageTemp{
-			Device:  GetFriendlyStorageName(deviceName),
+			Device:  GetFriendlyStorageName(dev.Name),
 			Sensors: []Temperature{},
 		}
 

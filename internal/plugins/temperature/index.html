@@ -69,6 +69,32 @@
         </div>
     </div>
 
+    <!-- Requirements Section -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Requirements</h2>
+        <div class="info-grid">
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">NVMe temperatures:</span>
+                <span class="info-value">require <code>nvme-cli</code> (<code>nvme</code> binary)</span>
+                <span id="nvme-cli-status" class="status created">Checking...</span>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Install:</span>
+                <span class="info-value">
+                    <code>apt install nvme-cli</code> (Debian/Ubuntu) &middot;
+                    <code>dnf install nvme-cli</code> (Fedora) &middot;
+                    <code>pacman -S nvme-cli</code> (Arch)
+                </span>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-value" style="color: var(--text-secondary);">
+                    CPU / SoC temperatures are read from <code>/sys/class/hwmon</code>
+                    and need no extra packages.
+                </span>
+            </div>
+        </div>
+    </div>
+
     <!-- Storage Temperatures Section -->
     <div id="plugin-storage-container"></div>
 
@@ -195,8 +221,18 @@
                 if (data.storageTemps && data.storageTemps.length > 0) {
                     storageContainer.innerHTML = data.storageTemps.map(device => this.renderStorageDevice(device)).join('');
                 } else {
-                    storageContainer.innerHTML = '';
+                    storageContainer.innerHTML = `
+                        <div class="info-section" style="margin-top: 20px;">
+                            <span class="info-value" style="color: var(--text-secondary);">
+                                No storage temperatures detected. NVMe sensors appear here once
+                                <code>nvme-cli</code> is installed (see Requirements above).
+                            </span>
+                        </div>
+                    `;
                 }
+
+                // Update requirements status
+                this.updateRequirements(data);
 
                 // Update statistics
                 document.getElementById('cpu-sensor-count').textContent = data.temperatures ? data.temperatures.length : 0;
@@ -209,6 +245,20 @@
             } catch (error) {
                 console.error('[TemperaturePlugin] Error loading temperature data:', error);
                 this.showError('Failed to load temperature data');
+            }
+        },
+
+        updateRequirements: function(data) {
+            const statusEl = document.getElementById('nvme-cli-status');
+            if (!statusEl) return;
+
+            const nvmeCLI = (data.requirements || []).find(r => r.name === 'nvme-cli');
+            if (nvmeCLI && nvmeCLI.installed) {
+                statusEl.className = 'status running';
+                statusEl.textContent = 'Installed';
+            } else {
+                statusEl.className = 'status stopped';
+                statusEl.textContent = 'Not installed';
             }
         },
 

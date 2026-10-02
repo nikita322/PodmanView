@@ -32,10 +32,18 @@ type TemperaturePlugin struct {
 type Temperature = sensors.Temperature
 type StorageTemp = sensors.StorageTemp
 
+// Requirement describes a system dependency that extends plugin functionality.
+type Requirement struct {
+	Name      string `json:"name"`      // Package/binary name, e.g. "nvme-cli"
+	Installed bool   `json:"installed"` // Whether the dependency is available
+	Purpose   string `json:"purpose"`   // What functionality it enables
+}
+
 // TemperatureData represents all temperature data
 type TemperatureData struct {
 	Temperatures []Temperature `json:"temperatures"`           // CPU/SoC temperatures
 	StorageTemps []StorageTemp `json:"storageTemps,omitempty"` // NVMe/Storage temperatures grouped by device
+	Requirements []Requirement `json:"requirements,omitempty"` // Optional system dependencies
 }
 
 // New creates a new TemperaturePlugin instance
@@ -51,6 +59,7 @@ func New() *TemperaturePlugin {
 		cachedData: &TemperatureData{
 			Temperatures: []Temperature{},
 			StorageTemps: []StorageTemp{},
+			Requirements: []Requirement{},
 		},
 	}
 }
@@ -192,6 +201,13 @@ func (p *TemperaturePlugin) updateTemperatureData() {
 	newData := &TemperatureData{
 		Temperatures: sensors.GetCPUTemperatures(),
 		StorageTemps: sensors.GetNVMeTemperaturesGrouped(),
+		Requirements: []Requirement{
+			{
+				Name:      "nvme-cli",
+				Installed: sensors.IsNVMeCLIAvailable(),
+				Purpose:   "NVMe/SSD temperature sensors (nvme smart-log)",
+			},
+		},
 	}
 
 	// Update cache with lock
@@ -216,6 +232,7 @@ func (p *TemperaturePlugin) GetTemperatureData() *TemperatureData {
 	return &TemperatureData{
 		Temperatures: p.cachedData.Temperatures,
 		StorageTemps: p.cachedData.StorageTemps,
+		Requirements: p.cachedData.Requirements,
 	}
 }
 
