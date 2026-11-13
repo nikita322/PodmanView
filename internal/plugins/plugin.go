@@ -58,6 +58,26 @@ type BackgroundTaskRunner interface {
 	StartBackgroundTasks(ctx context.Context) error
 }
 
+// EnableGuard is an optional interface for plugins that must verify host
+// prerequisites (binaries, devices, kernel modules) before they can be enabled.
+// The check runs before the plugin state is persisted, so a plugin that cannot
+// work is never stored as enabled.
+type EnableGuard interface {
+	// CanEnable returns a non-nil error explaining what is missing and how to fix
+	// it. The message is shown verbatim to the user.
+	CanEnable() error
+}
+
+// PluginNotReadyError is returned when a plugin refuses to be enabled because
+// its host prerequisites are not met.
+type PluginNotReadyError struct {
+	// Reason is the human readable explanation, ideally with a fix.
+	Reason string
+}
+
+// Error implements the error interface.
+func (e *PluginNotReadyError) Error() string { return e.Reason }
+
 // PluginDependencies contains dependencies available to plugins
 type PluginDependencies struct {
 	// PodmanClient is the client for working with Podman API

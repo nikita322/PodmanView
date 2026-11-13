@@ -112,8 +112,40 @@ func (r *Registry) SetRunning(name string, running bool) {
 	r.running[name] = running
 }
 
+// CanEnable verifies the plugin's host prerequisites (if it declares any).
+// It returns a *PluginNotReadyError when the plugin must not be enabled yet.
+// The guard runs outside the registry lock because the check may spawn a
+// process (for example `chromium --version`) and must not block readers.
+func (r *Registry) CanEnable(name string) error {
+	r.mu.RLock()
+	plugin, ok := r.plugins[name]
+	r.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("plugin %s not found", name)
+	}
+	return canEnable(plugin)
+}
+
+// canEnable runs the EnableGuard of a plugin, if it implements one.
+func canEnable(plugin Plugin) error {
+	guard, ok := plugin.(EnableGuard)
+	if !ok {
+		return nil
+	}
+	if err := guard.CanEnable(); err != nil {
+		return &PluginNotReadyError{Reason: err.Error()}
+	}
+	return nil
+}
+
 // EnablePlugin dynamically enables and starts a plugin
 func (r *Registry) EnablePlugin(ctx context.Context, name string) error {
+	// Check prerequisites first so that an unusable plugin is never started.
+	if err := r.CanEnable(name); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

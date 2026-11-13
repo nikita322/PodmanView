@@ -2,6 +2,7 @@
 const PluginsManager = {
     plugins: [],
     initialized: false,
+    readyPollTimer: null,
 
     async init() {
         if (this.initialized) return;
@@ -66,33 +67,7 @@ const PluginsManager = {
             }
 
             // Update row content
-            row.innerHTML = `
-                <td>
-                    <strong>${plugin.name}</strong>
-                </td>
-                <td>${plugin.description || '-'}</td>
-                <td>
-                    <span class="badge">${plugin.version || '-'}</span>
-                </td>
-                <td>
-                    <label class="toggle-label" style="margin: 0;">
-                        <input type="checkbox"
-                               class="plugin-toggle"
-                               data-plugin="${plugin.name}"
-                               ${plugin.enabled ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                        <span class="toggle-text">${plugin.enabled ? 'Enabled' : 'Disabled'}</span>
-                    </label>
-                </td>
-                <td>
-                    ${plugin.enabled ? `
-                        <button class="btn btn-sm btn-primary plugin-settings-btn"
-                                data-plugin="${plugin.name}">
-                            Settings
-                        </button>
-                    ` : ''}
-                </td>
-            `;
+            row.innerHTML = this.rowHtml(plugin);
 
             // Bind toggle event for this row
             const toggle = row.querySelector('.plugin-toggle');
@@ -123,6 +98,10 @@ const PluginsManager = {
             }
         });
 
+        // While some plugin is missing a host dependency, re-check periodically so
+        // the toggle becomes available as soon as the dependency is installed.
+        this.watchNotReadyPlugins();
+
         // Remove rows for plugins that no longer exist
         const existingRows = tbody.querySelectorAll('tr[data-plugin]');
         existingRows.forEach(row => {
@@ -131,6 +110,27 @@ const PluginsManager = {
                 row.remove();
             }
         });
+    },
+
+    // watchNotReadyPlugins polls the plugin list (slowly) while any plugin
+    // reports missing prerequisites.
+    watchNotReadyPlugins() {
+        const hasNotReady = this.plugins.some(plugin => plugin.ready === false);
+
+        if (hasNotReady && !this.readyPollTimer) {
+            this.readyPollTimer = setInterval(() => {
+                const page = document.getElementById('page-plugins');
+                if (!page || page.classList.contains('hidden')) {
+                    clearInterval(this.readyPollTimer);
+                    this.readyPollTimer = null;
+                    return;
+                }
+                this.loadPlugins();
+            }, 15000);
+        } else if (!hasNotReady && this.readyPollTimer) {
+            clearInterval(this.readyPollTimer);
+            this.readyPollTimer = null;
+        }
     },
 
     async togglePlugin(name, enabled) {
@@ -145,7 +145,18 @@ const PluginsManager = {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to toggle plugin`);
+                // The server explains why a plugin cannot be enabled (for example
+                // a missing host dependency) - surface that message verbatim.
+                let message = `Failed to toggle plugin`;
+                let code = '';
+                try {
+                    const payload = await response.json();
+                    if (payload && payload.error) message = payload.error;
+                    code = (payload && payload.code) || '';
+                } catch (e) { /* not a JSON error body */ }
+                const error = new Error(message);
+                error.code = code;
+                throw error;
             }
 
             const result = await response.json();
@@ -181,9 +192,59 @@ const PluginsManager = {
             }
         } catch (error) {
             console.error('Error toggling plugin:', error);
-            this.showError('Failed to toggle plugin');
+            this.showError(error.message || 'Failed to toggle plugin');
             await this.loadPlugins();
         }
+    },
+
+    // escapeHtml makes plugin metadata safe to inject into innerHTML.
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    // rowHtml renders one row of the plugin table. A plugin whose host
+    // prerequisites are missing cannot be enabled, so the toggle is disabled
+    // and the reason is shown inline.
+    rowHtml(plugin) {
+        const name = this.escapeHtml(plugin.name);
+        const ready = plugin.ready !== false;
+        const reason = ready ? '' : (plugin.not_ready_reason || 'Missing host prerequisites');
+        const toggleDisabled = (!plugin.enabled && !ready) ? 'disabled' : '';
+        const titleAttr = ready ? '' : ` title="${this.escapeHtml(reason)}"`;
+
+        return `
+            <td>
+                <strong>${name}</strong>
+            </td>
+            <td>${this.escapeHtml(plugin.description) || '-'}</td>
+            <td>
+                <span class="badge">${this.escapeHtml(plugin.version) || '-'}</span>
+            </td>
+            <td>
+                <label class="toggle-label" style="margin: 0;"${titleAttr}>
+                    <input type="checkbox"
+                           class="plugin-toggle"
+                           data-plugin="${name}"
+                           ${plugin.enabled ? 'checked' : ''}
+                           ${toggleDisabled}>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">${plugin.enabled ? 'Enabled' : 'Disabled'}</span>
+                </label>
+                ${ready ? '' : `<div style="font-size: 0.78em; color: var(--warning); margin-top: 4px; max-width: 260px;">${this.escapeHtml(reason)}</div>`}
+            </td>
+            <td>
+                ${plugin.enabled ? `
+                    <button class="btn btn-sm btn-primary plugin-settings-btn"
+                            data-plugin="${name}">
+                        Settings
+                    </button>
+                ` : ''}
+            </td>
+        `;
     },
 
     updatePluginRow(name) {
@@ -194,33 +255,7 @@ const PluginsManager = {
         const row = tbody?.querySelector(`tr[data-plugin="${name}"]`);
         if (!row) return;
 
-        row.innerHTML = `
-            <td>
-                <strong>${plugin.name}</strong>
-            </td>
-            <td>${plugin.description || '-'}</td>
-            <td>
-                <span class="badge">${plugin.version || '-'}</span>
-            </td>
-            <td>
-                <label class="toggle-label" style="margin: 0;">
-                    <input type="checkbox"
-                           class="plugin-toggle"
-                           data-plugin="${plugin.name}"
-                           ${plugin.enabled ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                    <span class="toggle-text">${plugin.enabled ? 'Enabled' : 'Disabled'}</span>
-                </label>
-            </td>
-            <td>
-                ${plugin.enabled ? `
-                    <button class="btn btn-sm btn-primary plugin-settings-btn"
-                            data-plugin="${plugin.name}">
-                        Settings
-                    </button>
-                ` : ''}
-            </td>
-        `;
+        row.innerHTML = this.rowHtml(plugin);
 
         // Re-bind events for this row
         const toggle = row.querySelector('.plugin-toggle');

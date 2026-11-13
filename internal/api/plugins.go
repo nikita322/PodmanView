@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"podmanview/internal/plugins"
 	"podmanview/internal/storage"
 )
 
@@ -35,7 +37,21 @@ func (h *PluginHandler) List(w http.ResponseWriter, r *http.Request) {
 			"description": plugin.Description(),
 			"version":     plugin.Version(),
 			"enabled":     plugin.IsEnabled(),
+			"ready":       true,
 		}
+
+		// Report missing host prerequisites so the UI can explain why a plugin
+		// cannot be enabled instead of letting the toggle fail silently.
+		if h.server.pluginRegistry != nil {
+			if err := h.server.pluginRegistry.CanEnable(plugin.Name()); err != nil {
+				var notReady *plugins.PluginNotReadyError
+				if errors.As(err, &notReady) {
+					pluginInfo["ready"] = false
+					pluginInfo["not_ready_reason"] = notReady.Reason
+				}
+			}
+		}
+
 		pluginsList = append(pluginsList, pluginInfo)
 	}
 
@@ -127,8 +143,28 @@ func (h *PluginHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify host prerequisites before persisting anything: a plugin that cannot
+	// run must not be stored as enabled (the browser plugin needs Chromium).
+	if req.Enabled && h.server.pluginRegistry != nil {
+		if err := h.server.pluginRegistry.CanEnable(pluginName); err != nil {
+			var notReady *plugins.PluginNotReadyError
+			if errors.As(err, &notReady) {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"error":   notReady.Reason,
+					"code":    "plugin_not_ready",
+					"plugin":  pluginName,
+					"enabled": false,
+				})
+				return
+			}
+			http.Error(w, "Failed to check plugin prerequisites: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Get existing config or create new one
 	pluginConfig, err := h.server.storage.GetPluginConfig(pluginName)
+	wasEnabled := false
 	if err == storage.ErrPluginNotFound {
 		pluginConfig = &storage.PluginConfig{
 			Enabled: req.Enabled,
@@ -138,6 +174,7 @@ func (h *PluginHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to get plugin config: "+err.Error(), http.StatusInternalServerError)
 		return
 	} else {
+		wasEnabled = pluginConfig.Enabled
 		pluginConfig.Enabled = req.Enabled
 	}
 
@@ -158,6 +195,25 @@ func (h *PluginHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 			err = h.server.pluginRegistry.DisablePlugin(ctx, pluginName)
 		}
 		if err != nil {
+			// Roll back the stored state, otherwise the plugin would look enabled
+			// after a failed start until the next successful toggle.
+			pluginConfig.Enabled = wasEnabled
+			if rollbackErr := h.server.storage.SetPluginConfig(pluginName, pluginConfig); rollbackErr != nil {
+				if h.server.logger != nil {
+					h.server.logger.Errorf("Failed to roll back plugin %s config: %v", pluginName, rollbackErr)
+				}
+			}
+
+			var notReady *plugins.PluginNotReadyError
+			if errors.As(err, &notReady) {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"error":   notReady.Reason,
+					"code":    "plugin_not_ready",
+					"plugin":  pluginName,
+					"enabled": false,
+				})
+				return
+			}
 			http.Error(w, "Failed to toggle plugin: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
