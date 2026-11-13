@@ -17,6 +17,7 @@ import (
 	"podmanview/internal/events"
 	"podmanview/internal/logger"
 	"podmanview/internal/plugins"
+	"podmanview/internal/plugins/browser"
 	"podmanview/internal/plugins/led"
 	"podmanview/internal/plugins/mcp"
 	"podmanview/internal/plugins/reactor"
@@ -143,6 +144,19 @@ func main() {
 		}
 	}
 
+	// Browser plugin is disabled by default: it needs Chromium on the host and
+	// spawns memory-hungry processes, so it must be enabled explicitly.
+	_, err = pluginStorage.GetPluginConfig("browser")
+	if err == storage.ErrPluginNotFound {
+		appLogger.Printf("Initializing default configuration for browser plugin (disabled)")
+		if err := pluginStorage.SetPluginConfig("browser", &storage.PluginConfig{
+			Enabled: false,
+			Name:    "Host Browser",
+		}); err != nil {
+			appLogger.Printf("Warning: Failed to set default browser plugin config: %v", err)
+		}
+	}
+
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -162,6 +176,10 @@ func main() {
 
 	if err := pluginRegistry.Register(mcp.New()); err != nil {
 		appLogger.Fatalf("Failed to register mcp plugin: %v", err)
+	}
+
+	if err := pluginRegistry.Register(browser.New()); err != nil {
+		appLogger.Fatalf("Failed to register browser plugin: %v", err)
 	}
 
 	appLogger.Printf("Registered %d plugins", pluginRegistry.Count())

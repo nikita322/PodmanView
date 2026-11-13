@@ -177,6 +177,13 @@ See `.env.example` for full documentation of all options.
 - Tools for system, systemd, network, packages, Podman, commands, power and logs
 - Enable/disable from the Plugins page
 
+### Host Browser (diagnostics)
+- Opens any page with headless Chromium running **on the host** and shows it as screenshots
+- Click / scroll / type on the screenshot, switch network profiles (direct or local SOCKS bypass)
+- Automated YouTube playback check with objective metrics and a `works` / `slow` / `blocked` / `error` verdict
+- Disabled by default; needs `chromium` on the host, see
+  [internal/plugins/browser/README.md](internal/plugins/browser/README.md)
+
 ### PWA Support
 - Installable as app on mobile and desktop
 - Standalone mode (no browser UI)
@@ -228,6 +235,28 @@ The plugin is enabled by default and can be toggled from the web UI **Plugins** 
 | `podman.manage` | start/stop/restart/remove containers |
 | `podman.logs` | Container logs |
 | `logs.journalctl` | Systemd journal logs |
+
+## Host Browser plugin (network diagnostics)
+
+The `browser` plugin runs a headless Chromium on the host itself, so it sees
+exactly the network the box sees. PodmanView only receives JPEG screenshots plus
+extracted page text — no iframes, no HTML proxying, every endpoint requires an
+authenticated session.
+
+```bash
+# on the host, once
+apt-get install -y chromium fonts-dejavu-core
+```
+
+Then enable it on the **Plugins** page. Enabling is refused (toggle disabled,
+`409 plugin_not_ready` over the API) while no Chromium binary is present, so the
+plugin cannot end up enabled but broken. Open a URL, click/scroll/type on the
+screenshot, and use **Run check** to measure YouTube playback (played vs wall
+clock, buffer, throughput, resolution, dropped frames, network/console errors)
+under two network profiles — direct and through a local bypass proxy.
+
+Full details, requirements, settings, API and limitations:
+[internal/plugins/browser/README.md](internal/plugins/browser/README.md)
 
 ## API Endpoints
 

@@ -1,0 +1,1114 @@
+<!-- Browser Plugin Interface -->
+<section id="page-plugin-browser" class="content-page hidden" data-plugin-version="1.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="browser-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">Browser on host</h1>
+        </div>
+        <div class="page-actions">
+            <span class="badge" id="browser-version-badge">-</span>
+            <button id="browser-status-btn" class="btn">Refresh</button>
+        </div>
+    </div>
+
+    <!-- Missing browser / host warnings -->
+    <div id="browser-warning" class="info-section" style="display: none; border-color: var(--warning); margin-bottom: 20px;">
+        <h2 style="color: var(--warning);">Browser is not ready</h2>
+        <div id="browser-warning-text" style="color: var(--text-secondary); font-size: 0.92em; line-height: 1.6;"></div>
+    </div>
+
+    <!-- Page viewer -->
+    <div class="info-section">
+        <h2>Page</h2>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
+            <select id="browser-profile" class="form-input" style="width: auto; min-width: 190px;" title="Network profile"></select>
+            <button id="browser-prev-btn" class="btn btn-sm" title="Back">&#8592;</button>
+            <button id="browser-next-btn" class="btn btn-sm" title="Forward">&#8594;</button>
+            <button id="browser-reload-btn" class="btn btn-sm" title="Reload">&#8635;</button>
+            <input type="text" id="browser-url" class="form-input" placeholder="example.com or https://example.com"
+                   style="flex: 1 1 260px; min-width: 200px; width: auto;" autocomplete="off">
+            <button id="browser-go-btn" class="btn btn-primary btn-sm">Go</button>
+            <label class="toggle-label" title="Refresh the screenshot continuously">
+                <input type="checkbox" id="browser-live-toggle">
+                <span class="toggle-slider"></span>
+                <span class="toggle-text">Live</span>
+            </label>
+            <button id="browser-shot-btn" class="btn btn-sm">Screenshot</button>
+            <button id="browser-stop-btn" class="btn btn-sm btn-danger">Stop browser</button>
+        </div>
+
+        <div id="browser-viewport"
+             style="position: relative; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-base); min-height: 240px; overflow: hidden;">
+            <div id="browser-placeholder" style="padding: 40px 20px; text-align: center; color: var(--text-secondary);">
+                Open a URL to start a headless Chromium on the host. Nothing is proxied through PodmanView:
+                the screenshot below is rendered by the host itself.
+            </div>
+            <img id="browser-shot" alt="Host page screenshot"
+                 style="display: none; width: 100%; height: auto; cursor: crosshair; user-select: none;">
+            <div id="browser-shot-busy"
+                 style="display: none; position: absolute; inset: 0; background: rgba(13,17,23,0.45); color: var(--text); align-items: center; justify-content: center; font-size: 0.95em;">
+                working…
+            </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 0.88em; color: var(--text-secondary);">
+            <span>Profile: <b id="browser-state-profile">-</b></span>
+            <span>readyState: <b id="browser-state-ready">-</b></span>
+            <span>Title: <b id="browser-state-title">-</b></span>
+            <span>PID: <b id="browser-state-pid">-</b></span>
+            <span>Idle: <b id="browser-state-idle">-</b></span>
+        </div>
+        <div id="browser-state-warning" style="margin-top: 8px; color: var(--warning); font-size: 0.88em; display: none;"></div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px;">
+            <input type="text" id="browser-key-text" class="form-input" placeholder="Text to type into the focused element"
+                   style="flex: 1 1 220px; width: auto;" autocomplete="off">
+            <button id="browser-send-text-btn" class="btn btn-sm">Type</button>
+            <button id="browser-key-enter" class="btn btn-sm">Enter</button>
+            <button id="browser-key-tab" class="btn btn-sm">Tab</button>
+            <button id="browser-key-esc" class="btn btn-sm">Esc</button>
+            <button id="browser-key-backspace" class="btn btn-sm">Backspace</button>
+            <button id="browser-page-text-btn" class="btn btn-sm">Show page text</button>
+        </div>
+        <pre id="browser-page-text"
+             style="display: none; margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px; font-size: 0.82em; white-space: pre-wrap; word-break: break-word; background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary);"></pre>
+        <p style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted);">
+            Click and scroll on the screenshot to control the page. A click is transmitted to Chromium at the same
+            coordinates, so the page behaves exactly like on the host.
+        </p>
+    </div>
+
+    <!-- YouTube check -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>YouTube playback check</h2>
+        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 12px;">
+            Opens the video, starts playback and measures what really happened for the configured duration:
+            played seconds vs wall clock, buffer, download speed, resolution, dropped frames, network and console errors.
+            Run it once with the bypass profile and once with the direct profile — the verdicts must differ.
+        </p>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <select id="browser-check-profile" class="form-input" style="width: auto; min-width: 190px;"></select>
+            <input type="number" id="browser-check-duration" class="form-input" min="5" max="120" step="1"
+                   style="width: 90px;" title="Measurement duration, seconds">
+            <input type="text" id="browser-check-url" class="form-input" style="flex: 1 1 280px; width: auto;"
+                   placeholder="https://www.youtube.com/watch?v=...">
+            <button id="browser-check-btn" class="btn btn-primary btn-sm">Run check</button>
+        </div>
+        <div id="browser-check-progress" style="display: none; margin-top: 10px; color: var(--primary); font-size: 0.9em;"></div>
+
+        <div id="browser-check-result" style="display: none; margin-top: 16px;">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                <span id="browser-check-verdict" class="badge" style="font-size: 0.95em; padding: 4px 10px;">-</span>
+                <b id="browser-check-summary" style="font-size: 0.95em;"></b>
+                <button id="browser-check-copy" class="btn btn-sm" style="margin-left: auto;">Copy report</button>
+            </div>
+            <div class="info-grid" id="browser-check-metrics" style="margin-top: 12px;"></div>
+            <div id="browser-check-reasons" style="margin-top: 10px; font-size: 0.88em; color: var(--text-secondary);"></div>
+            <pre id="browser-check-report"
+                 style="display: none; margin-top: 12px; max-height: 260px; overflow: auto; padding: 10px; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary);"></pre>
+        </div>
+
+        <div style="margin-top: 18px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <h3 style="margin: 0; font-size: 1em;">History</h3>
+                <button id="browser-history-clear" class="btn btn-sm btn-danger" style="margin-left: auto;">Clear</button>
+            </div>
+            <div id="browser-history-list" style="margin-top: 10px; font-size: 0.88em; color: var(--text-secondary);">
+                No checks yet.
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Settings</h2>
+        <div class="info-grid">
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Chromium path (empty = auto-detect):</span>
+                <input type="text" id="browser-set-path" placeholder="/usr/bin/chromium" style="width: 100%; max-width: 420px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Window width:</span>
+                <input type="number" id="browser-set-width" min="320" max="1920" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Window height:</span>
+                <input type="number" id="browser-set-height" min="240" max="1600" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">JPEG quality (20-95):</span>
+                <input type="number" id="browser-set-quality" min="20" max="95" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Live refresh, ms:</span>
+                <input type="number" id="browser-set-live" min="500" max="10000" step="100" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Navigate timeout, s:</span>
+                <input type="number" id="browser-set-nav" min="5" max="120" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Action timeout, s:</span>
+                <input type="number" id="browser-set-action" min="2" max="60" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Idle stop, s:</span>
+                <input type="number" id="browser-set-idle" min="30" max="3600" step="10" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Max instances:</span>
+                <input type="number" id="browser-set-max" min="1" max="4" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item">
+                <span class="info-label">Check duration, s:</span>
+                <input type="number" id="browser-set-checkduration" min="5" max="120" step="1" style="width: 110px;">
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Check URL:</span>
+                <input type="text" id="browser-set-checkurl" style="width: 100%; max-width: 520px;">
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Network profiles (one per line: id | name | proxy):</span>
+                <textarea id="browser-set-profiles" rows="4"
+                          style="width: 100%; max-width: 620px; font-family: monospace; font-size: 0.85em;"
+                          placeholder="direct | Direct (host network) |
+bypass | Local SOCKS proxy | socks5://127.0.0.1:1080"></textarea>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <span class="info-label">Extra Chromium flags (one per line):</span>
+                <textarea id="browser-set-extra" rows="3"
+                          style="width: 100%; max-width: 620px; font-family: monospace; font-size: 0.85em;"
+                          placeholder="--disable-features=Translate"></textarea>
+            </div>
+            <div class="info-item" style="grid-column: 1 / -1;">
+                <button id="browser-save-settings-btn" class="btn btn-primary">Save settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagnostics -->
+    <div class="info-section" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="browser-diag-toggle">
+            <h2 style="margin: 0;">Host diagnostics</h2>
+            <span id="browser-diag-arrow" style="font-size: 1.2em; transition: transform 0.2s;">&#9660;</span>
+        </div>
+        <div id="browser-diag-content" style="display: none; margin-top: 12px;">
+            <div class="info-grid" id="browser-diag-grid"></div>
+            <div id="browser-diag-hints" style="margin-top: 12px; font-size: 0.88em;"></div>
+        </div>
+    </div>
+
+    <!-- Limitations -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>What this is (and what it is not)</h2>
+        <div style="font-size: 0.88em; color: var(--text-secondary); line-height: 1.7;">
+            <p>This is a <b>diagnostic</b> tool for a small host (4 weak cores, ~3 GB RAM). Every browser instance costs
+               roughly 250-400 MB of RAM, and screenshots are JPEG frames, not video — do not use it to watch films.</p>
+            <ul style="padding-left: 20px; margin: 8px 0;">
+                <li>Chromium runs on the host, so it uses the host network (and your local bypass proxy if selected).</li>
+                <li>Nothing is proxied through PodmanView and no external HTML is embedded as an iframe.</li>
+                <li>Instances start lazily, one per network profile, and stop after the idle timeout or when the plugin
+                    is disabled.</li>
+                <li>Requires Chromium on the host: <code>apt-get install -y chromium fonts-dejavu-core</code>.</li>
+                <li>Every endpoint here requires an authenticated PodmanView session or the API token.</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<script>
+(function () {
+    'use strict';
+
+    const BrowserPluginUI = {
+        initialized: false,
+        bound: false,
+        settings: null,
+        status: null,
+        screenshotURL: null,
+        liveTimer: null,
+        stateTimer: null,
+        checkTimer: null,
+        checkStartedAt: 0,
+        lastCheck: null,
+        scrollQueue: 0,
+        scrollTimer: null,
+        pageTextVisible: false,
+
+        init() {
+            if (this.initialized) return;
+            this.initialized = true;
+            if (!this.bound) {
+                this.bound = true;
+                this.bindEvents();
+            }
+            this.refresh();
+            this.loadHistory();
+        },
+
+        cleanup() {
+            this.stopLive();
+            if (this.checkTimer) {
+                clearInterval(this.checkTimer);
+                this.checkTimer = null;
+            }
+            this.revokeScreenshot();
+            this.initialized = false;
+        },
+
+        // ---------- HTTP helpers ----------
+
+        authHeaders(extra) {
+            const headers = Object.assign({}, extra || {});
+            const token = localStorage.getItem('token');
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            return headers;
+        },
+
+        async request(path, options) {
+            options = options || {};
+            options.headers = this.authHeaders(options.headers);
+            const response = await fetch(path, options);
+            if (!response.ok) {
+                let message = 'HTTP ' + response.status;
+                let code = '';
+                try {
+                    const payload = await response.json();
+                    if (payload.error) message = payload.error;
+                    code = payload.code || '';
+                } catch (e) { /* not JSON */ }
+                const error = new Error(message);
+                error.code = code;
+                error.status = response.status;
+                throw error;
+            }
+            const type = response.headers.get('content-type') || '';
+            if (type.indexOf('application/json') === 0) return response.json();
+            return response;
+        },
+
+        postJSON(path, body) {
+            return this.request(path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body || {})
+            });
+        },
+
+        // ---------- Init ----------
+
+        currentProfile() {
+            const select = document.getElementById('browser-profile');
+            return select && select.value ? select.value : '';
+        },
+
+        bindEvents() {
+            const on = (id, event, handler) => {
+                const element = document.getElementById(id);
+                if (element) element.addEventListener(event, handler);
+            };
+
+            on('browser-back-btn', 'click', () => this.goBack());
+            on('browser-status-btn', 'click', () => this.refresh());
+            on('browser-go-btn', 'click', () => this.navigate());
+            on('browser-url', 'keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.navigate();
+                }
+            });
+            on('browser-prev-btn', 'click', () => this.historyStep('back'));
+            on('browser-next-btn', 'click', () => this.historyStep('forward'));
+            on('browser-reload-btn', 'click', () => this.reload());
+            on('browser-shot-btn', 'click', () => this.fetchScreenshot());
+            on('browser-stop-btn', 'click', () => this.stopBrowser());
+            on('browser-profile', 'change', () => {
+                this.stopLive();
+                this.refresh();
+            });
+            on('browser-live-toggle', 'change', (e) => {
+                if (e.target.checked) this.startLive(); else this.stopLive();
+            });
+
+            on('browser-send-text-btn', 'click', () => this.sendText(false));
+            on('browser-key-text', 'keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.sendText(false);
+                }
+            });
+            on('browser-key-enter', 'click', () => this.sendKey('Enter'));
+            on('browser-key-tab', 'click', () => this.sendKey('Tab'));
+            on('browser-key-esc', 'click', () => this.sendKey('Escape'));
+            on('browser-key-backspace', 'click', () => this.sendKey('Backspace'));
+            on('browser-page-text-btn', 'click', () => this.togglePageText());
+
+            const shot = document.getElementById('browser-shot');
+            if (shot) {
+                shot.addEventListener('click', (e) => this.clickOnImage(e));
+                shot.addEventListener('wheel', (e) => this.scrollOnImage(e), { passive: false });
+            }
+
+            on('browser-check-btn', 'click', () => this.runCheck());
+            on('browser-check-copy', 'click', () => this.copyReport(this.lastCheck));
+            on('browser-history-clear', 'click', () => this.clearHistory());
+
+            on('browser-save-settings-btn', 'click', () => this.saveSettings());
+
+            on('browser-diag-toggle', 'click', () => this.toggleDiagnostics());
+        },
+
+        goBack() {
+            if (typeof App !== 'undefined' && App.navigateTo) {
+                App.navigateTo('plugins');
+            }
+        },
+
+        toast(message, type) {
+            if (typeof showToast === 'function') {
+                showToast(message, type || 'info');
+            } else if (type === 'error') {
+                console.error(message);
+            }
+        },
+
+        // ---------- Status ----------
+
+        async refresh() {
+            try {
+                const profile = this.currentProfile();
+                const query = profile ? '?profile=' + encodeURIComponent(profile) : '';
+                const status = await this.request('/api/plugins/browser/status' + query);
+                this.status = status;
+                this.settings = status.settings;
+                this.renderStatus(status);
+                if (status.page) {
+                    this.fetchScreenshot();
+                }
+                if (!status.browser.found) {
+                    this.loadDiagnostics();
+                }
+            } catch (error) {
+                console.error('[BrowserPlugin] status error:', error);
+                this.toast(error.message, 'error');
+            }
+        },
+
+        renderStatus(status) {
+            const browser = status.browser || {};
+            const settings = status.settings || {};
+            const profiles = status.profiles || [];
+            const sessions = status.sessions || [];
+
+            document.getElementById('browser-version-badge').textContent =
+                browser.found ? (browser.version || browser.path || 'chromium') : 'no browser';
+
+            this.renderProfileOptions(profiles, settings);
+            this.renderWarning(status);
+            this.renderSettings(settings);
+            this.renderPageState(status, sessions);
+        },
+
+        renderProfileOptions(profiles, settings) {
+            const selects = [document.getElementById('browser-profile'), document.getElementById('browser-check-profile')];
+            selects.forEach((select, index) => {
+                if (!select) return;
+                const previous = select.value;
+                const fallback = (settings && settings.profiles && settings.profiles[0]) ? settings.profiles[0].id : '';
+                const nextValues = [];
+                select.innerHTML = '';
+                profiles.forEach((profile) => {
+                    const option = document.createElement('option');
+                    option.value = profile.id;
+                    option.textContent = profile.name + (profile.proxy ? ' — ' + profile.proxy : '');
+                    if (profile.reachable === false) {
+                        option.textContent += ' (not listening)';
+                    }
+                    select.appendChild(option);
+                    nextValues.push(profile.id);
+                });
+                let value = previous;
+                if (!value && index === 1) {
+                    // The check defaults to the first non-direct profile when present.
+                    const bypass = profiles.find((p) => p.proxy);
+                    value = bypass ? bypass.id : fallback;
+                }
+                if (!value) value = fallback;
+                if (nextValues.indexOf(value) === -1) value = nextValues[0] || '';
+                select.value = value;
+            });
+        },
+
+        renderWarning(status) {
+            const box = document.getElementById('browser-warning');
+            const text = document.getElementById('browser-warning-text');
+            const browser = status.browser || {};
+            const host = status.host || {};
+
+            const lines = [];
+            if (!browser.found) {
+                lines.push('<b>Chromium was not found on the host.</b>');
+                lines.push('Install it once and reload this page:');
+                lines.push('<code style="display:block; margin:8px 0; padding:8px; background: var(--bg-base); border-radius:4px;">' +
+                    'apt-get install -y chromium fonts-dejavu-core</code>');
+                lines.push('If the binary lives elsewhere, set its path in the settings below and save.');
+                if (browser.error) lines.push('<i>' + this.escape(browser.error) + '</i>');
+            } else if (host.fontCommandOk && host.fontFamilies === 0) {
+                lines.push('<b>No fonts detected (fc-list).</b> Pages will render boxes instead of text.');
+                lines.push('Install fonts: <code>apt-get install -y fonts-dejavu-core</code>');
+            }
+
+            (status.profiles || []).forEach((profile) => {
+                if (profile.reachable === false) {
+                    lines.push('Profile <b>' + this.escape(profile.id) + '</b>: nothing listens on ' +
+                        this.escape(profile.proxyAddr || profile.proxy) + ' — start your bypass proxy.');
+                }
+            });
+
+            text.innerHTML = lines.join('<br>');
+            box.style.display = lines.length ? 'block' : 'none';
+        },
+
+        renderPageState(status, sessions) {
+            const profile = this.currentProfile();
+            const session = sessions.find((s) => s.profile === profile);
+            const page = status.page;
+
+            document.getElementById('browser-state-profile').textContent = profile || '-';
+            document.getElementById('browser-state-ready').textContent = page ? (page.readyState || '-') : '-';
+            document.getElementById('browser-state-title').textContent = page && page.title ? page.title : '-';
+            document.getElementById('browser-state-pid').textContent = session ? session.pid : '-';
+            document.getElementById('browser-state-idle').textContent = session ? session.idleForSec + ' s' : '-';
+
+            if (page && page.url && page.url !== 'about:blank') {
+                const input = document.getElementById('browser-url');
+                if (document.activeElement !== input) input.value = page.url;
+            }
+
+            const warning = document.getElementById('browser-state-warning');
+            if (page && page.warning) {
+                warning.textContent = page.warning;
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
+
+            if (!session) {
+                this.showPlaceholder('No Chromium instance is running for this profile. Open a URL to start one.');
+            }
+        },
+
+        showPlaceholder(message) {
+            const img = document.getElementById('browser-shot');
+            const placeholder = document.getElementById('browser-placeholder');
+            if (message) {
+                this.revokeScreenshot();
+                img.style.display = 'none';
+                placeholder.style.display = 'block';
+                placeholder.textContent = message;
+            } else {
+                placeholder.style.display = 'none';
+                img.style.display = 'block';
+            }
+        },
+
+        busy(on) {
+            const busy = document.getElementById('browser-shot-busy');
+            if (busy) busy.style.display = on ? 'flex' : 'none';
+        },
+
+        // ---------- Page actions ----------
+
+        async navigate() {
+            const url = document.getElementById('browser-url').value.trim();
+            if (!url) return;
+            await this.run(async () => {
+                const state = await this.postJSON('/api/plugins/browser/navigate', {
+                    profile: this.currentProfile(),
+                    url: url
+                });
+                this.applyState(state);
+            });
+        },
+
+        async historyStep(dir) {
+            await this.run(async () => {
+                const state = await this.postJSON('/api/plugins/browser/history-step', {
+                    profile: this.currentProfile(),
+                    dir: dir
+                });
+                this.applyState(state);
+            });
+        },
+
+        async reload() {
+            await this.run(async () => {
+                const state = await this.postJSON('/api/plugins/browser/reload', {
+                    profile: this.currentProfile()
+                });
+                this.applyState(state);
+            });
+        },
+
+        async stopBrowser() {
+            await this.run(async () => {
+                await this.postJSON('/api/plugins/browser/stop', { profile: this.currentProfile() });
+                this.revokeScreenshot();
+                this.showPlaceholder('Browser stopped. Open a URL to start it again.');
+                await this.refresh();
+            }, 'Browser stopped');
+        },
+
+        applyState(state) {
+            if (!state) return;
+            if (state.url && state.url !== 'about:blank') {
+                document.getElementById('browser-url').value = state.url;
+            }
+            document.getElementById('browser-state-ready').textContent = state.readyState || '-';
+            document.getElementById('browser-state-title').textContent = state.title || '-';
+
+            const warning = document.getElementById('browser-state-warning');
+            if (state.warning) {
+                warning.textContent = state.warning;
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
+
+            if (this.pageTextVisible) this.loadPageText();
+            // Give Chromium a moment to paint, then refresh the image.
+            setTimeout(() => this.fetchScreenshot(), 250);
+        },
+
+        async run(action, successMessage) {
+            this.busy(true);
+            try {
+                await action();
+                if (successMessage) this.toast(successMessage, 'success');
+                return true;
+            } catch (error) {
+                console.error('[BrowserPlugin] action failed:', error);
+                if (error.code === 'browser_missing') {
+                    this.toast('Chromium is not installed on the host', 'error');
+                    this.loadDiagnostics();
+                } else {
+                    this.toast(error.message, 'error');
+                }
+                return false;
+            } finally {
+                this.busy(false);
+            }
+        },
+
+        thumbnailScale(img) {
+            const natural = img.naturalWidth || 1;
+            const displayed = img.clientWidth || natural;
+            return natural / displayed;
+        },
+
+        async clickOnImage(event) {
+            const img = event.currentTarget;
+            if (!img.naturalWidth) return;
+            const rect = img.getBoundingClientRect();
+            const scale = this.thumbnailScale(img);
+            const x = Math.round((event.clientX - rect.left) * scale);
+            const y = Math.round((event.clientY - rect.top) * scale);
+            await this.run(async () => {
+                await this.postJSON('/api/plugins/browser/click', {
+                    profile: this.currentProfile(),
+                    x: x,
+                    y: y
+                });
+                setTimeout(() => this.fetchScreenshot(), 400);
+            });
+        },
+
+        scrollOnImage(event) {
+            event.preventDefault();
+            const img = event.currentTarget;
+            if (!img.naturalWidth) return;
+            const rect = img.getBoundingClientRect();
+            const scale = this.thumbnailScale(img);
+            const x = Math.round((event.clientX - rect.left) * scale);
+            const y = Math.round((event.clientY - rect.top) * scale);
+            this.scrollQueue += event.deltaY;
+
+            if (this.scrollTimer) return;
+            this.scrollTimer = setTimeout(async () => {
+                const delta = this.scrollQueue;
+                this.scrollQueue = 0;
+                this.scrollTimer = null;
+                try {
+                    await this.postJSON('/api/plugins/browser/scroll', {
+                        profile: this.currentProfile(),
+                        x: x,
+                        y: y,
+                        deltaY: delta
+                    });
+                    setTimeout(() => this.fetchScreenshot(), 300);
+                } catch (error) {
+                    console.error('[BrowserPlugin] scroll failed:', error);
+                }
+            }, 150);
+        },
+
+        async sendText(submit) {
+            const input = document.getElementById('browser-key-text');
+            const text = input.value;
+            await this.run(async () => {
+                await this.postJSON('/api/plugins/browser/type', {
+                    profile: this.currentProfile(),
+                    text: text,
+                    submit: !!submit
+                });
+                if (!submit) input.value = '';
+                setTimeout(() => this.fetchScreenshot(), 300);
+            });
+        },
+
+        async sendKey(key) {
+            await this.run(async () => {
+                await this.postJSON('/api/plugins/browser/key', {
+                    profile: this.currentProfile(),
+                    key: key
+                });
+                setTimeout(() => this.fetchScreenshot(), 300);
+            });
+        },
+
+        async togglePageText() {
+            const pre = document.getElementById('browser-page-text');
+            this.pageTextVisible = !this.pageTextVisible;
+            pre.style.display = this.pageTextVisible ? 'block' : 'none';
+            if (this.pageTextVisible) this.loadPageText();
+        },
+
+        async loadPageText() {
+            const pre = document.getElementById('browser-page-text');
+            try {
+                const payload = await this.request('/api/plugins/browser/page-text?profile=' +
+                    encodeURIComponent(this.currentProfile()));
+                pre.textContent = (payload.title ? payload.title + '\n' + payload.url + '\n\n' : '') + (payload.text || '(empty)');
+            } catch (error) {
+                pre.textContent = 'Failed to read page text: ' + error.message;
+            }
+        },
+
+        // ---------- Screenshot ----------
+
+        async fetchScreenshot() {
+            const img = document.getElementById('browser-shot');
+            try {
+                const response = await this.request('/api/plugins/browser/screenshot?profile=' +
+                    encodeURIComponent(this.currentProfile()) + '&t=' + Date.now());
+                const blob = await response.blob();
+                this.revokeScreenshot();
+                this.screenshotURL = URL.createObjectURL(blob);
+                img.src = this.screenshotURL;
+                this.showPlaceholder('');
+            } catch (error) {
+                if (error.code === 'browser_not_running') {
+                    this.showPlaceholder('No Chromium instance is running for this profile. Open a URL to start one.');
+                } else {
+                    console.error('[BrowserPlugin] screenshot failed:', error);
+                }
+            }
+        },
+
+        revokeScreenshot() {
+            if (this.screenshotURL) {
+                URL.revokeObjectURL(this.screenshotURL);
+                this.screenshotURL = null;
+            }
+        },
+
+        startLive() {
+            this.stopLive();
+            const interval = (this.settings && this.settings.liveIntervalMs) || 2000;
+            this.liveTimer = setInterval(() => {
+                if (!this.pageIsVisible()) {
+                    // The user left the plugin page: stop polling so the idle
+                    // reaper on the server can shut Chromium down.
+                    this.stopLive();
+                    return;
+                }
+                this.fetchScreenshot();
+            }, interval);
+            this.stateTimer = setInterval(() => {
+                if (!this.pageIsVisible()) {
+                    this.stopLive();
+                    return;
+                }
+                this.refreshQuiet();
+            }, Math.max(interval, 3000));
+        },
+
+        pageIsVisible() {
+            const page = document.getElementById('page-plugin-browser');
+            if (!page || !document.body.contains(page)) return false;
+            return !page.classList.contains('hidden');
+        },
+
+        stopLive() {
+            if (this.liveTimer) {
+                clearInterval(this.liveTimer);
+                this.liveTimer = null;
+            }
+            if (this.stateTimer) {
+                clearInterval(this.stateTimer);
+                this.stateTimer = null;
+            }
+            const toggle = document.getElementById('browser-live-toggle');
+            if (toggle) toggle.checked = false;
+        },
+
+        async refreshQuiet() {
+            try {
+                const profile = this.currentProfile();
+                const status = await this.request('/api/plugins/browser/status?profile=' + encodeURIComponent(profile));
+                this.status = status;
+                this.renderPageState(status, status.sessions || []);
+            } catch (error) {
+                console.debug('[BrowserPlugin] quiet refresh failed:', error);
+            }
+        },
+
+        // ---------- YouTube check ----------
+
+        async runCheck() {
+            const button = document.getElementById('browser-check-btn');
+            const duration = parseInt(document.getElementById('browser-check-duration').value, 10) || 20;
+            const url = document.getElementById('browser-check-url').value.trim();
+            const profile = document.getElementById('browser-check-profile').value;
+
+            button.disabled = true;
+            this.checkStartedAt = Date.now();
+            const progress = document.getElementById('browser-check-progress');
+            progress.style.display = 'block';
+            progress.textContent = 'Starting browser and opening the page…';
+
+            this.checkTimer = setInterval(() => {
+                const elapsed = Math.round((Date.now() - this.checkStartedAt) / 1000);
+                progress.textContent = 'Measuring playback on profile "' + profile + '"… ' + elapsed + ' s' +
+                    ' (planned: ' + duration + ' s)';
+            }, 1000);
+
+            try {
+                const result = await this.postJSON('/api/plugins/browser/youtube-check', {
+                    profile: profile,
+                    url: url
+                });
+                this.renderCheck(result);
+                this.loadHistory();
+                this.fetchScreenshot();
+            } catch (error) {
+                this.toast('Check failed: ' + error.message, 'error');
+                progress.textContent = 'Check failed: ' + error.message;
+                return;
+            } finally {
+                clearInterval(this.checkTimer);
+                this.checkTimer = null;
+                button.disabled = false;
+                setTimeout(() => { progress.style.display = 'none'; }, 1500);
+            }
+            progress.textContent = 'Done.';
+        },
+
+        verdictColor(verdict) {
+            switch (verdict) {
+                case 'works': return { color: 'var(--success)', background: 'var(--success-bg)' };
+                case 'slow': return { color: 'var(--warning)', background: 'var(--warning-bg)' };
+                case 'blocked': return { color: 'var(--danger)', background: 'var(--danger-bg)' };
+                default: return { color: 'var(--text-secondary)', background: 'var(--bg-elevated)' };
+            }
+        },
+
+        renderCheck(result) {
+            if (!result) return;
+            this.lastCheck = result;
+
+            const container = document.getElementById('browser-check-result');
+            container.style.display = 'block';
+
+            const badge = document.getElementById('browser-check-verdict');
+            badge.textContent = (result.verdict || 'unknown').toUpperCase();
+            const colors = this.verdictColor(result.verdict);
+            badge.style.color = colors.color;
+            badge.style.background = colors.background;
+
+            document.getElementById('browser-check-summary').textContent = result.summary || '';
+
+            const metrics = result.metrics || {};
+            const rows = [
+                ['Profile', (result.profileName || result.profile) + (result.proxy ? ' (' + result.proxy + ')' : ' (direct)')],
+                ['Played vs wall clock', this.formatFloat(metrics.playedSec, 1) + ' s of ' +
+                    this.formatFloat(metrics.wallSec, 1) + ' s (' + this.formatFloat(metrics.playedRatio * 100, 0) + '%)'],
+                ['Buffer ahead', this.formatFloat(metrics.bufferedAheadSec, 1) + ' s (max ' +
+                    this.formatFloat(metrics.maxBufferedAhead, 1) + ' s)'],
+                ['Downloaded', this.formatFloat(metrics.downloadedMb, 2) + ' MB (' +
+                    this.formatFloat(metrics.throughputKbps, 0) + ' KB/s)'],
+                ['Video', (metrics.videoWidth || 0) + 'x' + (metrics.videoHeight || 0) +
+                    ', readyState ' + (metrics.readyState || 0)],
+                ['Dropped frames', (metrics.droppedFrames || 0) + ' / ' + (metrics.totalFrames || 0) +
+                    ' (' + this.formatFloat(metrics.droppedPercent, 1) + '%)'],
+                ['Samples', (metrics.playingSamples || 0) + ' playing of ' + (metrics.samples || 0)],
+                ['URL', result.url || '-']
+            ];
+
+            const grid = document.getElementById('browser-check-metrics');
+            grid.innerHTML = rows.map((row) =>
+                '<div class="info-item"><span class="info-label">' + this.escape(row[0]) + ':</span>' +
+                '<span class="info-value">' + this.escape(String(row[1])) + '</span></div>'
+            ).join('');
+
+            const reasons = [];
+            (result.reasons || []).forEach((reason) => reasons.push('- ' + this.escape(reason)));
+            (result.networkFailures || []).forEach((failure) => reasons.push(
+                '- network: ' + this.escape(failure.host) + ' → ' + this.escape(failure.error) + ' ×' + failure.count));
+            (result.consoleErrors || []).forEach((entry) => reasons.push('- console: ' + this.escape(entry)));
+
+            document.getElementById('browser-check-reasons').innerHTML =
+                reasons.length ? reasons.join('<br>') : '';
+
+            const report = document.getElementById('browser-check-report');
+            report.textContent = result.report || '';
+            report.style.display = 'block';
+        },
+
+        async loadHistory() {
+            const list = document.getElementById('browser-history-list');
+            try {
+                const history = await this.request('/api/plugins/browser/history');
+                if (!history || !history.length) {
+                    list.innerHTML = 'No checks yet.';
+                    return;
+                }
+                list.innerHTML = history.map((entry, index) => {
+                    const colors = this.verdictColor(entry.verdict);
+                    const time = new Date(entry.startedAt).toLocaleString();
+                    return '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-light);">' +
+                        '<span class="badge" style="color:' + colors.color + ';background:' + colors.background + ';">' +
+                        this.escape((entry.verdict || '').toUpperCase()) + '</span>' +
+                        '<span>' + this.escape(time) + '</span>' +
+                        '<span style="color: var(--text-muted);">' + this.escape(entry.profileName || entry.profile) + '</span>' +
+                        '<span style="flex:1 1 200px;">' + this.escape(entry.summary || '') + '</span>' +
+                        '<button class="btn btn-sm" data-history-view="' + index + '">Show</button>' +
+                        '<button class="btn btn-sm" data-history-copy="' + index + '">Copy</button>' +
+                        '</div>';
+                }).join('');
+
+                list.querySelectorAll('[data-history-view]').forEach((button) => {
+                    button.addEventListener('click', () => this.renderCheck(history[parseInt(button.dataset.historyView, 10)]));
+                });
+                list.querySelectorAll('[data-history-copy]').forEach((button) => {
+                    button.addEventListener('click', () => this.copyReport(history[parseInt(button.dataset.historyCopy, 10)]));
+                });
+            } catch (error) {
+                list.textContent = 'Failed to load history: ' + error.message;
+            }
+        },
+
+        async clearHistory() {
+            try {
+                await this.request('/api/plugins/browser/history', { method: 'DELETE' });
+                document.getElementById('browser-check-result').style.display = 'none';
+                this.loadHistory();
+            } catch (error) {
+                this.toast('Failed to clear history: ' + error.message, 'error');
+            }
+        },
+
+        async copyReport(entry) {
+            if (!entry || !entry.report) return;
+            try {
+                await navigator.clipboard.writeText(entry.report);
+                this.toast('Report copied to clipboard', 'success');
+            } catch (e) {
+                const area = document.createElement('textarea');
+                area.value = entry.report;
+                document.body.appendChild(area);
+                area.select();
+                document.execCommand('copy');
+                area.remove();
+                this.toast('Report copied', 'success');
+            }
+        },
+
+        // ---------- Settings ----------
+
+        renderSettings(settings) {
+            if (!settings) return;
+            const set = (id, value) => {
+                const element = document.getElementById(id);
+                if (element && document.activeElement !== element) element.value = value;
+            };
+
+            set('browser-set-path', settings.browserPath || '');
+            set('browser-set-width', settings.windowWidth);
+            set('browser-set-height', settings.windowHeight);
+            set('browser-set-quality', settings.imageQuality);
+            set('browser-set-live', settings.liveIntervalMs);
+            set('browser-set-nav', settings.navigateTimeoutSec);
+            set('browser-set-action', settings.actionTimeoutSec);
+            set('browser-set-idle', settings.idleStopSec);
+            set('browser-set-max', settings.maxInstances);
+            set('browser-set-checkduration', settings.checkDurationSec);
+            set('browser-set-checkurl', settings.checkUrl || '');
+
+            const profilesArea = document.getElementById('browser-set-profiles');
+            if (profilesArea && document.activeElement !== profilesArea) {
+                profilesArea.value = (settings.profiles || [])
+                    .map((p) => p.id + ' | ' + p.name + ' | ' + (p.proxy || ''))
+                    .join('\n');
+            }
+
+            const extraArea = document.getElementById('browser-set-extra');
+            if (extraArea && document.activeElement !== extraArea) {
+                extraArea.value = (settings.extraArgs || []).join('\n');
+            }
+
+            const duration = document.getElementById('browser-check-duration');
+            if (duration && document.activeElement !== duration) duration.value = settings.checkDurationSec;
+            const checkURL = document.getElementById('browser-check-url');
+            if (checkURL && document.activeElement !== checkURL) checkURL.value = settings.checkUrl || '';
+        },
+
+        parseProfiles(text) {
+            const profiles = [];
+            text.split('\n').forEach((line) => {
+                line = line.trim();
+                if (!line) return;
+                const parts = line.split('|').map((part) => part.trim());
+                profiles.push({
+                    id: parts[0] || '',
+                    name: parts[1] || parts[0] || '',
+                    proxy: parts[2] || ''
+                });
+            });
+            return profiles;
+        },
+
+        async saveSettings() {
+            const value = (id, fallback) => {
+                const element = document.getElementById(id);
+                if (!element) return fallback;
+                return element.value;
+            };
+            const number = (id, fallback) => {
+                const parsed = parseInt(value(id, ''), 10);
+                return isNaN(parsed) ? fallback : parsed;
+            };
+
+            const payload = {
+                browserPath: value('browser-set-path', ''),
+                windowWidth: number('browser-set-width', 1024),
+                windowHeight: number('browser-set-height', 768),
+                imageQuality: number('browser-set-quality', 70),
+                liveIntervalMs: number('browser-set-live', 2000),
+                navigateTimeoutSec: number('browser-set-nav', 25),
+                actionTimeoutSec: number('browser-set-action', 10),
+                idleStopSec: number('browser-set-idle', 120),
+                maxInstances: number('browser-set-max', 2),
+                checkDurationSec: number('browser-set-checkduration', 20),
+                checkUrl: value('browser-set-checkurl', ''),
+                profiles: this.parseProfiles(value('browser-set-profiles', '')),
+                extraArgs: value('browser-set-extra', '').split('\n').map((line) => line.trim()).filter(Boolean)
+            };
+
+            try {
+                const response = await this.postJSON('/api/plugins/browser/settings', payload);
+                this.settings = response.settings || payload;
+                this.toast('Settings saved', 'success');
+                await this.refresh();
+            } catch (error) {
+                this.toast('Failed to save settings: ' + error.message, 'error');
+            }
+        },
+
+        // ---------- Diagnostics ----------
+
+        toggleDiagnostics() {
+            const content = document.getElementById('browser-diag-content');
+            const arrow = document.getElementById('browser-diag-arrow');
+            const visible = content.style.display !== 'none';
+            content.style.display = visible ? 'none' : 'block';
+            arrow.style.transform = visible ? 'rotate(0deg)' : 'rotate(180deg)';
+            if (!visible) this.loadDiagnostics();
+        },
+
+        async loadDiagnostics() {
+            const grid = document.getElementById('browser-diag-grid');
+            const hints = document.getElementById('browser-diag-hints');
+            try {
+                const data = await this.request('/api/plugins/browser/diagnostics');
+                const browser = data.browser || {};
+                const host = data.host || {};
+                const rows = [
+                    ['Chromium', browser.found ? (browser.version || browser.path) : 'not found'],
+                    ['Binary path', browser.path || '-'],
+                    ['Architecture', host.arch || '-'],
+                    ['RAM total', (host.memTotalMb || 0) + ' MB'],
+                    ['RAM available', (host.memAvailableMb || 0) + ' MB'],
+                    ['Font families', host.fontCommandOk ? String(host.fontFamilies) : 'fc-list missing'],
+                    ['Chromium processes', String(host.browserProcesses || 0)],
+                    ['Temp profile dirs', String(host.tempProfileDirs || 0)],
+                    ['Running instances', String((data.sessions || []).length)]
+                ];
+
+                grid.innerHTML = rows.map((row) =>
+                    '<div class="info-item"><span class="info-label">' + this.escape(row[0]) + ':</span>' +
+                    '<span class="info-value">' + this.escape(row[1]) + '</span></div>'
+                ).join('');
+
+                hints.innerHTML = (data.hints && data.hints.length)
+                    ? data.hints.map((hint) => '• ' + this.escape(hint)).join('<br>')
+                    : 'No problems detected.';
+            } catch (error) {
+                hints.textContent = 'Diagnostics failed: ' + error.message;
+            }
+        },
+
+        // ---------- Utilities ----------
+
+        escape(text) {
+            return String(text == null ? '' : text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        },
+
+        formatFloat(value, digits) {
+            if (typeof value !== 'number' || !isFinite(value)) return (0).toFixed(digits);
+            return value.toFixed(digits);
+        }
+    };
+
+    const page = document.getElementById('page-plugin-browser');
+    if (page) {
+        page.addEventListener('plugin-page-shown', () => BrowserPluginUI.init());
+        page.addEventListener('plugin-page-hidden', () => BrowserPluginUI.cleanup());
+
+        // The shell does not emit plugin-page-hidden, so watch the section class
+        // (and detachment) to stop timers when the user navigates away.
+        const observer = new MutationObserver(() => {
+            if (page.classList.contains('hidden') || !document.body.contains(page)) {
+                BrowserPluginUI.cleanup();
+            } else if (!BrowserPluginUI.initialized) {
+                BrowserPluginUI.init();
+            }
+        });
+        observer.observe(page, { attributes: true, attributeFilter: ['class'] });
+
+        if (!page.classList.contains('hidden')) {
+            BrowserPluginUI.init();
+        }
+    }
+})();
+</script>
