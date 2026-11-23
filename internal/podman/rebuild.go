@@ -59,8 +59,22 @@ func (c *Client) RebuildContainer(ctx context.Context, id string, pullLatest boo
 	tmpName := fmt.Sprintf("%s-rebuild-%d", result.Name, time.Now().Unix())
 
 	// Step 1: create a stopped copy of the container
-	out, err := runPodman(ctx, podmanBin, "container", "clone", "--name", tmpName, id)
+	//
+	// The image must be passed explicitly: with only two positional arguments
+	// `podman container clone` inherits the image ID of the original container
+	// (ConfigToSpec), so a re-tagged/rebuilt image would be ignored and the
+	// clone would keep running the old one. --pull=never keeps podman from
+	// pulling the (locally built) reference from a registry.
+	cloneArgs := []string{"container", "clone", "--pull=never", id, tmpName}
+	if result.Image != "" {
+		cloneArgs = append(cloneArgs, result.Image)
+	}
+
+	out, err := runPodman(ctx, podmanBin, cloneArgs...)
 	if err != nil {
+		if strings.Contains(err.Error(), "arg(s)") {
+			return nil, fmt.Errorf("podman is too old for rebuild, upgrade to podman >= 4.4: %w", err)
+		}
 		return nil, fmt.Errorf("clone container: %w", err)
 	}
 	result.ID = firstLine(out)

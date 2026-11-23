@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -96,5 +97,31 @@ func (c *Client) RebuildContainerFromSource(ctx context.Context, id, contextDir 
 		result.Built = true
 		result.BuildContext = contextDir
 	}
-	return result, err
+	if err != nil || result == nil || result.ID == "" {
+		return result, err
+	}
+
+	// Make sure the recreated container really runs the freshly built image
+	built, err := c.InspectImage(ctx, image)
+	if err != nil {
+		return result, nil
+	}
+	container, err := c.InspectContainer(ctx, result.ID)
+	if err != nil {
+		return result, nil
+	}
+	if shortID(built.ID) != shortID(container.Image) {
+		result.Warning = fmt.Sprintf("container still uses the previous image (%s)", shortID(container.Image))
+	}
+
+	return result, nil
+}
+
+// shortID trims the sha256 prefix and shortens an image/container ID
+func shortID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return id
 }
