@@ -11,34 +11,75 @@ import (
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/storage"
 )
 
 // ContainerHandler handles container endpoints
 type ContainerHandler struct {
 	client     *podman.Client
 	eventStore *events.Store
+	storage    storage.Storage
 }
 
+// buildContextsBucket stores per-container build contexts (container name -> path)
+const buildContextsBucket = "container-build-contexts"
+
 // NewContainerHandler creates new container handler
-func NewContainerHandler(client *podman.Client, eventStore *events.Store) *ContainerHandler {
-	return &ContainerHandler{client: client, eventStore: eventStore}
+func NewContainerHandler(client *podman.Client, eventStore *events.Store, store storage.Storage) *ContainerHandler {
+	return &ContainerHandler{client: client, eventStore: eventStore, storage: store}
+}
+
+// getBuildContext returns the stored build context for a container name
+func (h *ContainerHandler) getBuildContext(name string) string {
+	if h.storage == nil || name == "" {
+		return ""
+	}
+	value, err := h.storage.GetString(buildContextsBucket, name)
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+// setBuildContext stores (or clears) the build context for a container name
+func (h *ContainerHandler) setBuildContext(name, contextDir string) error {
+	if h.storage == nil {
+		return nil
+	}
+	if contextDir == "" {
+		if err := h.storage.Delete(buildContextsBucket, name); err != nil && err != storage.ErrNotFound {
+			return err
+		}
+		return nil
+	}
+	return h.storage.SetString(buildContextsBucket, name, contextDir)
+}
+
+// containerName returns the first container name without the leading slash
+func containerName(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	return strings.TrimPrefix(names[0], "/")
 }
 
 // ContainerWithStats extends Container with resource stats
 type ContainerWithStats struct {
-	ID          string   `json:"Id"`
-	Names       []string `json:"Names"`
-	Image       string   `json:"Image"`
-	State       string   `json:"State"`
-	CPU         float64  `json:"CPU"`
-	MemUsage    uint64   `json:"MemUsage"`
-	MemLimit    uint64   `json:"MemLimit"`
-	MemPerc     float64  `json:"MemPerc"`
-	NetInput    uint64   `json:"NetInput"`
-	NetOutput   uint64   `json:"NetOutput"`
-	BlockInput  uint64   `json:"BlockInput"`
-	BlockOutput uint64   `json:"BlockOutput"`
-	PIDs        uint64   `json:"PIDs"`
+	ID           string               `json:"Id"`
+	Names        []string             `json:"Names"`
+	Image        string               `json:"Image"`
+	State        string               `json:"State"`
+	Ports        []podman.PortMapping `json:"Ports"`
+	BuildContext string               `json:"buildContext,omitempty"`
+	CPU          float64              `json:"CPU"`
+	MemUsage     uint64               `json:"MemUsage"`
+	MemLimit     uint64               `json:"MemLimit"`
+	MemPerc      float64              `json:"MemPerc"`
+	NetInput     uint64               `json:"NetInput"`
+	NetOutput    uint64               `json:"NetOutput"`
+	BlockInput   uint64               `json:"BlockInput"`
+	BlockOutput  uint64               `json:"BlockOutput"`
+	PIDs         uint64               `json:"PIDs"`
 }
 
 // List handles GET /api/containers
@@ -62,10 +103,12 @@ func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
 	result := make([]ContainerWithStats, len(containers))
 	for i, c := range containers {
 		result[i] = ContainerWithStats{
-			ID:    c.ID,
-			Names: c.Names,
-			Image: c.Image,
-			State: c.State,
+			ID:           c.ID,
+			Names:        c.Names,
+			Image:        c.Image,
+			State:        c.State,
+			Ports:        c.Ports,
+			BuildContext: h.getBuildContext(containerName(c.Names)),
 		}
 		if stat := statsMap[c.ID]; stat != nil {
 			result[i].CPU = stat.CPU
@@ -154,6 +197,74 @@ func (h *ContainerHandler) Restart(w http.ResponseWriter, r *http.Request) {
 
 	h.eventStore.Add(events.EventContainerRestart, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
+}
+
+// RebuildRequest represents the request body for rebuilding a container
+// BuildContext is optional: nil means "use the stored one", an empty string
+// clears the stored context (pull-only rebuild).
+type RebuildRequest struct {
+	BuildContext *string `json:"buildContext"`
+}
+
+// Rebuild handles POST /api/containers/{id}/rebuild
+//
+// With a build context the image is rebuilt first
+// (`podman build --pull --no-cache -t <image> <ctx>`) and the container is then
+// recreated from it. Without one the container is just recreated from the
+// latest pulled image.
+func (h *ContainerHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	var req RebuildRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	info, err := h.client.InspectContainer(ctx, id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	name := strings.TrimPrefix(info.Name, "/")
+
+	buildContext := h.getBuildContext(name)
+	if req.BuildContext != nil {
+		buildContext = strings.TrimSpace(*req.BuildContext)
+	}
+
+	var result *podman.RebuildResult
+	if buildContext != "" {
+		result, err = h.client.RebuildContainerFromSource(ctx, id, buildContext)
+	} else {
+		result, err = h.client.RebuildContainer(ctx, id, true)
+	}
+
+	// Remember the context (even if the build failed, so a typo is not lost).
+	// An empty value clears the stored context.
+	_ = h.setBuildContext(name, buildContext)
+
+	if err != nil {
+		h.eventStore.Add(events.EventContainerRebuild, user.Username, getClientIP(r), false, err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	details := shortID(id)
+	if result.Built {
+		details += " from " + result.BuildContext
+	}
+	if result.Warning != "" {
+		details += " (" + result.Warning + ")"
+	}
+	h.eventStore.Add(events.EventContainerRebuild, user.Username, getClientIP(r), true, details)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Remove handles DELETE /api/containers/{id}

@@ -646,6 +646,7 @@ select option {
 .event-type.container_start { background: var(--success-bg); color: var(--success); }
 .event-type.container_stop { background: var(--warning-bg); color: var(--warning); }
 .event-type.container_restart { background: var(--primary-glow); color: var(--primary); }
+.event-type.container_rebuild { background: var(--primary-glow); color: var(--primary); }
 .event-type.container_remove,
 .event-type.image_remove { background: var(--danger-bg); color: var(--danger); }
 .event-type.container_create,

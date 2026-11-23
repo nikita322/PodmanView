@@ -109,7 +109,7 @@ func (s *Server) setupRoutes() {
 
 	// Create handlers
 	authHandler := NewAuthHandler(s.pamAuth, s.jwtManager, s.wsTokenStore, s.eventStore)
-	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore)
+	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore, s.storage)
 	imageHandler := NewImageHandler(s.podmanClient, s.eventStore)
 	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore, s.pluginRegistry)
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler, s.logger)
@@ -150,6 +150,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/containers/{id}/start", containerHandler.Start)
 		r.Post("/api/containers/{id}/stop", containerHandler.Stop)
 		r.Post("/api/containers/{id}/restart", containerHandler.Restart)
+		r.Post("/api/containers/{id}/rebuild", containerHandler.Rebuild)
 		r.Delete("/api/containers/{id}", containerHandler.Remove)
 
 		// Terminal (WebSocket) - history is sent via WebSocket

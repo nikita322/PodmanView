@@ -266,6 +266,7 @@
                                 <th>Name</th>
                                 <th>Image</th>
                                 <th>Status</th>
+                                <th>Ports</th>
                                 <th>CPU / RAM</th>
                                 <th>Actions</th>
                             </tr>
@@ -597,6 +598,30 @@
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="closeModal('modal-confirm')">Cancel</button>
                 <button type="button" id="confirm-action-btn" class="btn btn-danger">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Rebuild Container -->
+    <div id="modal-rebuild" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Rebuild Container</h2>
+                <button type="button" class="btn-close" onclick="closeModal('modal-rebuild')">&times;</button>
+            </div>
+            <p id="rebuild-hint" style="margin-bottom: 16px; color: var(--text-light);"></p>
+            <div class="form-group">
+                <label for="rebuild-context">Build context (optional)</label>
+                <input type="text" id="rebuild-context" placeholder="/opt/stacks/myapp — leave empty to only pull the latest image"
+                       onkeydown="if (event.key === 'Enter') App.performRebuild()">
+                <small style="color: var(--text-light);">
+                    With a context the image is rebuilt first: <code>podman build --pull --no-cache -t &lt;image&gt; &lt;context&gt;</code>.
+                    The path is remembered for this container.
+                </small>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeModal('modal-rebuild')">Cancel</button>
+                <button type="button" id="rebuild-action-btn" class="btn btn-primary" onclick="App.performRebuild()">Rebuild</button>
             </div>
         </div>
     </div>

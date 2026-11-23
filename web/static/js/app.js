@@ -35,6 +35,8 @@ const App = {
     xtermLoaded: false,
     xtermLoading: false,
     logsContainerId: null,
+    containers: [],
+    rebuildContainerId: null,
     logsAutoInterval: null,
     eventsLastId: 0,
     eventsOpen: false,
@@ -804,6 +806,7 @@ const App = {
             'container_start': 'Container Start',
             'container_stop': 'Container Stop',
             'container_restart': 'Container Restart',
+            'container_rebuild': 'Container Rebuild',
             'container_remove': 'Container Remove',
             'container_create': 'Container Create',
             'image_pull': 'Image Pull',
@@ -1429,7 +1432,7 @@ const App = {
         const isInitialLoad = existingRows.length === 0;
 
         if (isInitialLoad) {
-            tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
         }
 
         try {
@@ -1437,9 +1440,10 @@ const App = {
             if (!response.ok) throw new Error('Failed to load containers');
 
             const containers = await response.json();
+            this.containers = containers;
 
             if (!containers || containers.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5">No containers found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6">No containers found</td></tr>';
                 return;
             }
 
@@ -1454,6 +1458,7 @@ const App = {
                 if (existingRow) {
                     // Update only dynamic data (state, stats)
                     const statusCell = existingRow.querySelector('.status');
+                    const portsCell = existingRow.querySelector('.ports-cell');
                     const statsCell = existingRow.querySelector('.stats-cell');
                     const actionsCell = existingRow.querySelector('.actions');
 
@@ -1466,6 +1471,8 @@ const App = {
                         // Update actions menu when state changes
                         actionsCell.innerHTML = this.getContainerActions(c);
                     }
+
+                    this.setPortsCell(portsCell, c.Ports);
 
                     const statsDisplay = c.State === 'running'
                         ? `${c.CPU.toFixed(1)}% / ${this.formatBytes(c.MemUsage)}`
@@ -1497,7 +1504,7 @@ const App = {
         } catch (error) {
             if (error.message !== 'Session expired') {
                 if (isInitialLoad) {
-                    tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6">Error loading containers</td></tr>';
                 }
                 this.showToast('Failed to load containers', 'error');
             }
@@ -1514,10 +1521,32 @@ const App = {
             <td class="truncate">${this.getContainerName(c)}</td>
             <td class="truncate">${c.Image}</td>
             <td><span class="status ${c.State}">${c.State}</span></td>
+            <td class="ports-cell truncate" title="${this.formatPorts(c.Ports)}">${this.formatPorts(c.Ports)}</td>
             <td class="stats-cell">${statsDisplay}</td>
             <td class="actions">
                 ${this.getContainerActions(c)}
             </td>`;
+    },
+
+    // Update ports cell in place (keeps title attribute in sync)
+    setPortsCell(cell, ports) {
+        if (!cell) return;
+        const text = this.formatPorts(ports);
+        if (cell.textContent !== text) {
+            cell.textContent = text;
+            cell.title = text;
+        }
+    },
+
+    // Format container ports as "host → container/proto" list
+    formatPorts(ports) {
+        if (!ports || ports.length === 0) return '-';
+        return ports.map(p => {
+            const proto = p.protocol ? `/${p.protocol}` : '';
+            return p.host_port
+                ? `${p.host_port} → ${p.container_port}${proto}`
+                : `${p.container_port}${proto}`;
+        }).join(', ');
     },
 
     // Get container name from Names array
@@ -1546,9 +1575,11 @@ const App = {
                 menuItems += `<div class="dropdown-divider"></div>`;
                 menuItems += `<button class="dropdown-item" onclick="App.stopContainer('${id}')">Stop</button>`;
                 menuItems += `<button class="dropdown-item" onclick="App.restartContainer('${id}')">Restart</button>`;
+                menuItems += `<button class="dropdown-item" onclick="App.openRebuildModal('${id}')">Rebuild</button>`;
             } else {
                 menuItems += `<div class="dropdown-divider"></div>`;
                 menuItems += `<button class="dropdown-item" onclick="App.startContainer('${id}')">Start</button>`;
+                menuItems += `<button class="dropdown-item" onclick="App.openRebuildModal('${id}')">Rebuild</button>`;
             }
             menuItems += `<div class="dropdown-divider"></div>`;
             menuItems += `<button class="dropdown-item btn-danger" onclick="App.removeContainer('${id}')">Remove</button>`;
@@ -1636,6 +1667,54 @@ const App = {
             this.loadContainers();
         } catch (error) {
             if (error.message !== 'Session expired') this.showToast('Failed to restart container', 'error');
+        }
+    },
+
+    // Recreate the container from its (optionally rebuilt) image
+    openRebuildModal(id) {
+        const container = this.containers.find(c => (c.Id || c.ID) === id);
+        this.rebuildContainerId = id;
+
+        const image = container ? container.Image : '';
+        const context = container && container.buildContext ? container.buildContext : '';
+        document.getElementById('rebuild-context').value = context;
+        document.getElementById('rebuild-hint').textContent = context
+            ? `Image ${image} will be rebuilt from ${context}, then the container is recreated. Its configuration is preserved.`
+            : `Image ${image} will be pulled and the container recreated. To rebuild the image from a local Dockerfile, set the build context below.`;
+
+        this.showModal('modal-rebuild');
+    },
+
+    async performRebuild() {
+        const id = this.rebuildContainerId;
+        const context = document.getElementById('rebuild-context').value.trim();
+        const btn = document.getElementById('rebuild-action-btn');
+
+        btn.disabled = true;
+        btn.textContent = context ? 'Building...' : 'Rebuilding...';
+        this.showToast(context ? 'Building image, this can take a while...' : 'Rebuilding container...', 'info');
+
+        try {
+            const response = await this.authFetch(`/api/containers/${id}/rebuild`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ buildContext: context })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to rebuild container');
+
+            this.closeModal('modal-rebuild');
+            if (data.warning) {
+                this.showToast(`Container rebuilt: ${data.warning}`, 'info');
+            } else {
+                this.showToast(data.built ? 'Image built and container recreated' : 'Container rebuilt', 'success');
+            }
+            this.loadContainers();
+        } catch (error) {
+            if (error.message !== 'Session expired') this.showToast(error.message || 'Failed to rebuild container', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Rebuild';
         }
     },
 

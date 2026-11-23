@@ -13,9 +13,17 @@ import (
 	"time"
 )
 
+const (
+	// defaultTimeout is used for regular API calls
+	defaultTimeout = 30 * time.Second
+	// longTimeout is used for operations that can take minutes (image pull)
+	longTimeout = 15 * time.Minute
+)
+
 // Client represents a Podman API client
 type Client struct {
 	httpClient *http.Client
+	longClient *http.Client
 	socketPath string
 }
 
@@ -29,18 +37,7 @@ func NewClient() (*Client, error) {
 
 	for _, path := range socketPaths {
 		if _, err := os.Stat(path); err == nil {
-			client := &Client{
-				socketPath: path,
-				httpClient: &http.Client{
-					Transport: &http.Transport{
-						DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-							return net.Dial("unix", path)
-						},
-					},
-					Timeout: 30 * time.Second,
-				},
-			}
-			return client, nil
+			return newClient(path), nil
 		}
 	}
 
@@ -53,28 +50,41 @@ func NewClientWithSocket(socketPath string) (*Client, error) {
 		return nil, fmt.Errorf("socket not found: %s", socketPath)
 	}
 
-	return &Client{
-		socketPath: socketPath,
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", socketPath)
-				},
-			},
-			Timeout: 30 * time.Second,
-		},
-	}, nil
+	return newClient(socketPath), nil
 }
 
-// request makes HTTP request to Podman API
-func (c *Client) request(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	url := "http://localhost" + path
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+// newClient builds a client for the given unix socket
+func newClient(socketPath string) *Client {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", socketPath)
+		},
+	}
+
+	return &Client{
+		socketPath: socketPath,
+		httpClient: &http.Client{Transport: transport, Timeout: defaultTimeout},
+		longClient: &http.Client{Transport: transport, Timeout: longTimeout},
+	}
+}
+
+// newRequest builds an HTTP request against the Podman API
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, body)
 	if err != nil {
 		return nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+// request makes HTTP request to Podman API
+func (c *Client) request(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	req, err := c.newRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, err
 	}
 	return c.httpClient.Do(req)
 }
@@ -138,35 +148,29 @@ func (c *Client) delete(ctx context.Context, path string) error {
 
 // Container types
 type Container struct {
-	ID      string   `json:"Id"`
-	Names   []string `json:"Names"`
-	Image   string   `json:"Image"`
-	ImageID string   `json:"ImageID"`
-	Command []string `json:"Command"`
-	State   string   `json:"State"`
-	Status  string   `json:"Status"`
-	Ports   []Port   `json:"Ports"`
-}
-
-type Port struct {
-	IP          string `json:"IP"`
-	PrivatePort int    `json:"PrivatePort"`
-	PublicPort  int    `json:"PublicPort"`
-	Type        string `json:"Type"`
+	ID      string        `json:"Id"`
+	Names   []string      `json:"Names"`
+	Image   string        `json:"Image"`
+	ImageID string        `json:"ImageID"`
+	Command []string      `json:"Command"`
+	State   string        `json:"State"`
+	Status  string        `json:"Status"`
+	Ports   []PortMapping `json:"Ports"`
 }
 
 type ContainerInspect struct {
-	ID      string `json:"Id"`
-	Name    string `json:"Name"`
-	Created string `json:"Created"`
-	State   struct {
+	ID        string `json:"Id"`
+	Name      string `json:"Name"`
+	Created   string `json:"Created"`
+	Image     string `json:"Image"`
+	ImageName string `json:"ImageName"`
+	State     struct {
 		Status     string `json:"Status"`
 		Running    bool   `json:"Running"`
 		Paused     bool   `json:"Paused"`
 		StartedAt  string `json:"StartedAt"`
 		FinishedAt string `json:"FinishedAt"`
 	} `json:"State"`
-	Image  string `json:"Image"`
 	Config struct {
 		Hostname string            `json:"Hostname"`
 		Env      []string          `json:"Env"`
@@ -265,10 +269,12 @@ type ContainerCreateConfig struct {
 	Mounts       []Mount           `json:"mounts,omitempty"`
 }
 
-// PortMapping represents a port mapping
+// PortMapping represents a port mapping (used both for listing and creating containers)
 type PortMapping struct {
+	HostIP        string `json:"host_ip,omitempty"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+	Range         int    `json:"range,omitempty"`
 	Protocol      string `json:"protocol,omitempty"`
 }
 
@@ -463,7 +469,13 @@ func (c *Client) InspectImage(ctx context.Context, id string) (*ImageInspect, er
 // PullImage pulls an image from registry
 func (c *Client) PullImage(ctx context.Context, reference string) error {
 	path := fmt.Sprintf("/v4.0.0/libpod/images/pull?reference=%s", url.QueryEscape(reference))
-	resp, err := c.request(ctx, http.MethodPost, path, nil)
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return err
+	}
+
+	// Pulls are slow: use the client with the long timeout
+	resp, err := c.longClient.Do(req)
 	if err != nil {
 		return err
 	}

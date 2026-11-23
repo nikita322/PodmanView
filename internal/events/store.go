@@ -22,6 +22,7 @@ const (
 	EventContainerStart   EventType = "container_start"
 	EventContainerStop    EventType = "container_stop"
 	EventContainerRestart EventType = "container_restart"
+	EventContainerRebuild EventType = "container_rebuild"
 	EventContainerRemove  EventType = "container_remove"
 	EventContainerCreate  EventType = "container_create"
 
