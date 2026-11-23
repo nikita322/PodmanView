@@ -46,11 +46,12 @@ func (c *Client) RebuildContainer(ctx context.Context, id string, pullLatest boo
 
 	result := &RebuildResult{
 		Name:       strings.TrimPrefix(info.Name, "/"),
-		Image:      info.imageRef(),
+		Image:      c.imageRef(ctx, info),
 		WasRunning: info.State.Running,
 	}
 
-	if pullLatest && result.Image != "" {
+	// Image builds tagged localhost/... are never in a registry - skip the pull
+	if pullLatest && result.Image != "" && !isLocalImageRef(result.Image) {
 		if err := c.PullImage(ctx, result.Image); err != nil {
 			result.Warning = fmt.Sprintf("failed to pull %s, used local image: %v", result.Image, err)
 		}
@@ -62,10 +63,9 @@ func (c *Client) RebuildContainer(ctx context.Context, id string, pullLatest boo
 	//
 	// The image must be passed explicitly: with only two positional arguments
 	// `podman container clone` inherits the image ID of the original container
-	// (ConfigToSpec), so a re-tagged/rebuilt image would be ignored and the
-	// clone would keep running the old one. --pull=never keeps podman from
-	// pulling the (locally built) reference from a registry.
-	cloneArgs := []string{"container", "clone", "--pull=never", id, tmpName}
+	// (generate.ConfigToSpec), so a re-tagged or freshly built image would be
+	// ignored and the clone would keep running the old one.
+	cloneArgs := []string{"container", "clone", id, tmpName}
 	if result.Image != "" {
 		cloneArgs = append(cloneArgs, result.Image)
 	}
@@ -105,12 +105,62 @@ func (c *Client) RebuildContainer(ctx context.Context, id string, pullLatest boo
 	return result, nil
 }
 
-// imageRef returns the image reference to pull, falling back to the image ID
-func (i *ContainerInspect) imageRef() string {
-	if i.ImageName != "" {
-		return i.ImageName
+// imageRef resolves a usable image reference for a container.
+//
+// Containers are not always created from a named image: `podman run <image-id>`
+// and clones of images that lost their tag leave ImageName holding a bare ID,
+// which can neither be used as a build tag nor pulled. In that case the image's
+// tags are inspected and, as a last resort, a local tag derived from the
+// container name is used.
+func (c *Client) imageRef(ctx context.Context, info *ContainerInspect) string {
+	if name := info.ImageName; name != "" && !isImageID(name) {
+		return name
 	}
-	return i.Image
+
+	if info.Image != "" {
+		if img, err := c.InspectImage(ctx, info.Image); err == nil {
+			if tag := pickImageTag(img.RepoTags); tag != "" {
+				return tag
+			}
+		}
+	}
+
+	if name := strings.TrimPrefix(info.Name, "/"); name != "" {
+		return "localhost/" + name + ":latest"
+	}
+	return ""
+}
+
+// pickImageTag prefers locally built tags over registry ones
+func pickImageTag(tags []string) string {
+	for _, tag := range tags {
+		if isLocalImageRef(tag) {
+			return tag
+		}
+	}
+	if len(tags) > 0 {
+		return tags[0]
+	}
+	return ""
+}
+
+// isLocalImageRef reports whether the reference is a locally built image
+func isLocalImageRef(ref string) bool {
+	return strings.HasPrefix(ref, "localhost/")
+}
+
+// isImageID reports whether ref is a bare image ID
+func isImageID(ref string) bool {
+	id := strings.TrimPrefix(ref, "sha256:")
+	if len(id) != 64 {
+		return false
+	}
+	for _, r := range id {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // runPodman runs the podman CLI and returns its stdout

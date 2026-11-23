@@ -26,6 +26,9 @@ func (c *Client) BuildImage(ctx context.Context, image, contextDir string) error
 	if image == "" {
 		return fmt.Errorf("image reference is required")
 	}
+	if isImageID(image) {
+		return fmt.Errorf("cannot build image %s: a tag is required, not an image ID", shortID(image))
+	}
 
 	podmanBin, err := exec.LookPath("podman")
 	if err != nil {
@@ -82,7 +85,7 @@ func (c *Client) RebuildContainerFromSource(ctx context.Context, id, contextDir 
 		return nil, fmt.Errorf("inspect container: %w", err)
 	}
 
-	image := info.imageRef()
+	image := c.imageRef(ctx, info)
 	if image == "" {
 		return nil, fmt.Errorf("container %s has no image reference", id)
 	}
